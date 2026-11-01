@@ -1073,3 +1073,40 @@ trainers. These steps record them again on the updated client.
 
    wowlua: `0.16862745583057 0.57647061347961 0.019607843831182 0`, the
    installed table's alpha (0); 70425 answered 1. Recorded: (to do)
+
+## The Classic clients' data (decision T554)
+
+Each Classic client answers for itself: run every step on MoP Classic,
+TBC Anniversary and Classic Era, with a character alone, no target and out
+of combat, and note what each prints. "wowlua:" is what the engine answers
+now.
+
+1. **Locales**:
+   1. `/run for i,l in ipairs(GetAvailableLocaleInfo()) do print(i,l.localeId,l.localeName) end`
+
+   wowlua: nothing (no answer yet on these clients). Recorded: (to do)
+2. **Loot rolls and product choices**:
+   1. `/dump C_LootHistory.GetNumItems(), #C_ProductChoice.GetChoices()`
+
+   wowlua: `0 0` (unverified). Recorded: (to do)
+3. **Max level**:
+   1. `/dump GetMaxPlayerLevel(), GetMaxLevelForPlayerExpansion(), GetMaxLevelForLatestExpansion()`
+
+   wowlua: MoP Classic `90 90 90`, TBC Anniversary `70 70 70`, Classic Era
+   `60 60 60` (the flavor table's). Recorded: (to do)
+4. **Skill lines**:
+   1. `/dump GetNumSkillLines()`
+   2. `/dump GetSkillLineInfo(1)`
+   3. `/dump GetSkillLineInfo(2)`
+
+   wowlua: nothing (skills are not modelled). Recorded: (to do)
+5. **Functions the dump lacks**:
+   1. `/dump type(C_UnitAurasPrivate), type(C_UnitAurasPrivate and C_UnitAurasPrivate.SetShowDispelTypeCallback), type(C_StoreSecure)`
+
+   wowlua: `nil nil nil` (Ketho's dumps of older builds lack them).
+   Recorded: (to do)
+6. **Constants the client defines**:
+   1. `/dump Constants.InventoryConstants.NumGenericBankSlots, LE_GAME_ERR_SPELL_FAILED_TOTEMS, LE_GAME_ERR_SPELL_FAILED_EQUIPPED_ITEM`
+   2. `/run local n=0 for k in pairs(_G) do if type(k)=="string" and k:find("^LE_GAME_ERR_") then n=n+1 end end print(n)`
+
+   wowlua: `nil nil nil` and `0`. Recorded: (to do)

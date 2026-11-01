@@ -28,15 +28,15 @@ their clients answer differently is unverified.
   them (98.1%).
 - **Scenario replays:** 22,097 of 22,154 recorded lines replayed as the client
   logged them (99.7%); 25 of 29 scenarios line for line.
-- **Unverified rules:** 1,178 comments in the engine mark a rule unverified.
+- **Unverified rules:** 1,180 comments in the engine mark a rule unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
 | camelot | 5,113 | 5,110 (99.9%) | 353 | 1,477 | 1,477 (100.0%) | all |
-| standard | 4,871 | 4,521 (92.8%) | 0 | 1,438 | 1,430 (99.4%) | none |
-| vanilla | 3,221 | 2,908 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| tbc | 3,221 | 2,908 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| mists | 3,222 | 2,905 (90.2%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| standard | 4,871 | 4,523 (92.9%) | 0 | 1,438 | 1,430 (99.4%) | none |
+| vanilla | 3,221 | 2,909 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| tbc | 3,221 | 2,909 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| mists | 3,222 | 2,906 (90.2%) | 0 | 1,360 | 1,348 (99.1%) | none |
 
 ## API behaviour
 
@@ -844,7 +844,7 @@ read-back counts for its setter), from the test's misses
 
 ## Unverified rules
 
-The engine's code marks 1,178 rules unverified: each rests on Blizzard's
+The engine's code marks 1,180 rules unverified: each rests on Blizzard's
 documentation or UI code, warcraft.wiki.gg, elune or the function's name, not on
 a probe of the client. An in-game probe confirms or corrects each
 ([probes](../tests/ingame/PROBES.md)). Each line is the marking comment's first
@@ -1049,6 +1049,11 @@ page changes only when a rule is added, removed or reworded.
 ### chatwindows (1)
 
 - [chatwindows.rs](../crates/wowlua-engine/src/chatwindows.rs): The chat windows' settings the client keeps (decision T263): what Blizzard's chat code sets (`SetChatWindowName`, `…S...
+
+### classic (2)
+
+- [classic.rs](../crates/wowlua-engine/src/classic.rs): `C_LootHistory.GetNumItems()`: no loot rolls (the group's are not modelled; unverified).
+- [classic.rs](../crates/wowlua-engine/src/classic.rs): `C_ProductChoice.GetChoices()`: no product choices (unverified).
 
 ### clientdata (1)
 
@@ -1373,7 +1378,7 @@ page changes only when a rule is added, removed or reworded.
 - [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `CalculateStringEditDistance(a, b)`: the Levenshtein distance between the two strings' characters (from the name; unv...
 - [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `CaseAccentInsensitiveParse(name)`: the name in lower case with the Latin accents taken off, a form searches compare...
 - [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `GetGameMessageInfo(index)`: the client's answer where recorded (26: `ERR_ITEM_MAX_COUNT`, no sound kit, voice 30); e...
-- [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `GetMaxLevelForLatestExpansion()`: the flavor's max level from the flavor table (camelot's 60, as `GetMaxPlayerLevel`...
+- [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `GetMaxLevelForLatestExpansion()`, `GetMaxPlayerLevel()` and `GetMaxLevelForPlayerExpansion()`: the flavor's max leve...
 - [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `GetNumClasses()`: Classic's nine classes (warcraft.wiki.gg: on Classic it is not the highest class ID; unverified on...
 - [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `GetRealmID()`, `GetNativeRealmID()`: recorded 4618 (the native realm's unverified).
 - [globalsinfo.rs](../crates/wowlua-engine/src/globalsinfo.rs): `GetWorldElapsedTime(timerID)`: no timer (recorded `"", 0, 0` for 0; unverified for other IDs).
@@ -2460,6 +2465,7 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - The camera (decisions T520, T521)
 - The dev tools (0.12.1)
 - The Camelot update (decision T553)
+- The Classic clients' data (decision T554)
 
 ## In-game regressions
 

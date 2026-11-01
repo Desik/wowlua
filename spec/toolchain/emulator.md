@@ -570,7 +570,10 @@ takes the flavor's `Interface` folder and its global strings:
   ones on beta and PTR clients (WoW Forever's beta ran from `_classic_beta_`).
 - **Load order** (inferred, unverified): `LoadFirst` ones first, each after
   its `Dep`, `Dependencies`, `RequiredDep` and `OptionalDep` addons,
-  otherwise by name.
+  otherwise by name; a startup addon with `LoadWith` right after the addons
+  it names (Classic's Blizzard_UIParentPanelManager after Blizzard_UIParent,
+  before the `LoadFirst` addons that use its `UIPanelWindows`; decision
+  T554).
   File lines follow their inline directives; `[Family]`, `[Game]` and
   `[TextLocale]` name the flavor's folders (`Mainline`, `Camelot`, `enUS`).
   `ADDON_LOADED` fires after each addon.
