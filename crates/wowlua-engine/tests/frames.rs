@@ -71,6 +71,29 @@ end",
 }
 
 #[test]
+fn region_count_tracks_regions_not_child_frames() {
+    let mut vm = vm();
+    let r = run(
+        &mut vm,
+        "local f = CreateFrame('Frame')
+local other = CreateFrame('Frame')
+local empty = f:GetNumRegions()
+local child = CreateFrame('Frame', nil, f)
+child:CreateTexture()
+local texture = f:CreateTexture()
+f:CreateFontString()
+f:CreateMaskTexture()
+f:CreateLine()
+texture:Hide()
+local populated = f:GetNumRegions()
+local enumerated = select('#', f:GetRegions())
+texture:SetParent(other)
+return empty, populated, enumerated, f:GetNumRegions(), other:GetNumRegions(), f:GetNumChildren()",
+    );
+    assert_eq!(r, ["0", "4", "4", "3", "1", "1"]);
+}
+
+#[test]
 fn a_failing_handler_does_not_stop_the_others() {
     let mut vm = vm();
     run(
@@ -88,6 +111,92 @@ end",
     assert_eq!(r[0], "2");
     assert_eq!(r[1], "1");
     assert!(r[2].ends_with("boom"), "{}", r[2]);
+}
+
+#[test]
+fn draw_layer_switches_filter_the_scene_and_can_be_reenabled() {
+    let mut vm = vm();
+    run(
+        &mut vm,
+        "LayerFrame = CreateFrame('Frame', nil, UIParent)
+LayerFrame:SetSize(100, 100)
+LayerFrame:SetPoint('CENTER')
+local function texture(frame, layer)
+    local t = frame:CreateTexture(nil, layer)
+    t:SetAllPoints()
+    t:SetColorTexture(1, 1, 1)
+    return t
+end
+LayerBackground = texture(LayerFrame, 'BACKGROUND')
+LayerArtwork = texture(LayerFrame, 'ARTWORK')
+LayerChild = CreateFrame('Frame', nil, LayerFrame)
+LayerChild:SetAllPoints()
+LayerChild:SetUsingParentLevel(true)
+texture(LayerChild, 'BACKGROUND')
+NewLayerTexture = texture",
+    );
+    let quads = |vm: &mut Vm| {
+        wowlua_engine::scene::build(vm)
+            .items
+            .iter()
+            .filter(|item| matches!(item, wowlua_engine::scene::Item::Quad(_)))
+            .count()
+    };
+    assert_eq!(quads(&mut vm), 3);
+    run(&mut vm, "LayerFrame:DisableDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 2);
+    let shown = run(&mut vm, "return tostring(LayerBackground:IsShown())");
+    assert_eq!(shown, ["true"]);
+    run(
+        &mut vm,
+        "NewLayerTexture(LayerFrame, 'BACKGROUND')
+LayerFrame:DisableDrawLayer('BACKGROUND')
+LayerBackground:Show()",
+    );
+    assert_eq!(quads(&mut vm), 2);
+    run(&mut vm, "LayerArtwork:SetDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 1);
+    run(&mut vm, "LayerFrame:EnableDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 4);
+    run(&mut vm, "LayerBackground:Hide()");
+    assert_eq!(quads(&mut vm), 3);
+    run(&mut vm, "LayerFrame:DisableDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 1);
+    run(&mut vm, "LayerChild:DisableDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 0);
+    run(&mut vm, "LayerChild:EnableDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 1);
+    run(&mut vm, "LayerFrame:EnableDrawLayer('BACKGROUND')");
+    assert_eq!(quads(&mut vm), 3);
+}
+
+#[test]
+fn zero_texture_files_clear_regions_and_button_artwork() {
+    let mut vm = vm();
+    run(
+        &mut vm,
+        "ZeroTextureFrame = CreateFrame('CheckButton', nil, UIParent)
+ZeroTextureFrame:SetSize(30, 30)
+ZeroTextureFrame:SetPoint('CENTER')
+ZeroTextureRegion = ZeroTextureFrame:CreateTexture(nil, 'BACKGROUND')
+ZeroTextureRegion:SetAllPoints()
+ZeroTextureRegion:SetTexture(134400)",
+    );
+    assert!(!wowlua_engine::scene::build(&mut vm).items.is_empty());
+    run(
+        &mut vm,
+        "ZeroTextureRegion:SetTexture(0)
+ZeroTextureFrame:SetNormalTexture(0)
+ZeroTextureFrame:SetPushedTexture(0)",
+    );
+    assert!(wowlua_engine::scene::build(&mut vm).items.is_empty());
+    let r = run(
+        &mut vm,
+        "return tostring(ZeroTextureRegion:GetTexture()), tostring(ZeroTextureFrame:GetNormalTexture():GetTexture())",
+    );
+    assert_eq!(r, ["nil", "nil"]);
+    run(&mut vm, "ZeroTextureRegion:SetTexture(134400)");
+    assert!(!wowlua_engine::scene::build(&mut vm).items.is_empty());
 }
 
 #[test]
