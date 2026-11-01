@@ -68,6 +68,9 @@ end
 each(profile.auras, function(_, aura)
     player:applyAura(aura)
 end)
+each(profile.renown, function(faction, level)
+    mock.setRenown(tonumber(faction), level)
+end)
 each(profile.units, function(_, data)
     -- Another player of the world, not in the group: online, and accepting
     -- the player's invitations, as a friend would (decision T363).

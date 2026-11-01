@@ -405,6 +405,10 @@ A profile can also set the screen: `"screen": { "width": 2560, "height":
 over `test.screen` in `wowlua.json`. The UI scale takes the game's slider's
 values: 0.65 to 1.15 in steps of 0.01.
 
+A profile's `renown` maps faction IDs to numeric renown levels, for example
+`"renown": { "2802": 16, "2507": 0 }`. It applies through `mock.setRenown`
+before the addon loads. Leaving it out keeps the world's default renown.
+
 A unit's `level` of -1 is a boss's "??" level: `UnitLevel` answers -1, as in
 the game. Your character's level goes up to your flavors' max level (60 on
 WoW Forever).
