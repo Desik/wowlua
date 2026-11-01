@@ -64,6 +64,8 @@ const SUN: [f32; 4] = [0.35, 0.25, 0.9, 0.45];
 const FOG_START: f32 = 0.55;
 /// The nearest the camera draws (yards).
 const NEAR: f32 = 0.2;
+/// How far the sky's models reach about the eye (yards).
+const SKY_FAR: f32 = 100_000.0;
 
 /// Where a point of the world (north, west, up yards) shows on a screen
 /// `width` by `height` pixels as the world pass draws `w` (top left
@@ -981,6 +983,56 @@ impl Renderer {
                 variation: 0,
             })
             .collect();
+        // The light's sky models about the eye (decision T556): unlit,
+        // each by its weight, drawn behind the world; posed before the
+        // units, whose poses are kept for the next frame.
+        let skyboxes: Vec<wowlua_engine::scene::Actor> = light
+            .as_ref()
+            .map(|l| {
+                l.skyboxes
+                    .iter()
+                    .map(|&(file, _, weight)| wowlua_engine::scene::Actor {
+                        source: wowlua_engine::scene::ModelSource::File(file),
+                        position: [0.0; 3],
+                        yaw: 0.0,
+                        pitch: 0.0,
+                        roll: 0.0,
+                        fixed_axes: false,
+                        scale: 1.0,
+                        alpha: weight,
+                        animation: 0,
+                        variation: 0,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let sky_models = (!skyboxes.is_empty())
+            .then(|| {
+                let (l, u) = (f32s(w.look), f32s(w.up));
+                let camera = wowlua_engine::scene::ModelCamera::Scene {
+                    position: [0.0; 3],
+                    forward: l,
+                    right: [
+                        l[1] * u[2] - l[2] * u[1],
+                        l[2] * u[0] - l[0] * u[2],
+                        l[0] * u[1] - l[1] * u[0],
+                    ],
+                    up: u,
+                    fov: fov_y,
+                    near: NEAR,
+                    far: SKY_FAR,
+                };
+                self.world_models(
+                    &skyboxes,
+                    &camera,
+                    (w.time * 1000.0) as u32,
+                    crate::model::look_at([0.0; 3], l, u),
+                    crate::model::perspective(fov_y, aspect, NEAR, SKY_FAR),
+                    ([0.0, 0.0, -1.0], [1.0; 3], [0.0; 3]),
+                    assets,
+                )
+            })
+            .flatten();
         let models = (!actors.is_empty())
             .then(|| {
                 let right = {
@@ -1018,6 +1070,43 @@ impl Renderer {
         self.queue
             .write_buffer(&setup.sky, 0, bytemuck::bytes_of(&sky_globals));
         let depth = &self.world.depth.as_ref().expect("the depth buffer").0;
+        let clear = wgpu::LoadOp::Clear(wgpu::Color {
+            r: f64::from(fog[0]),
+            g: f64::from(fog[1]),
+            b: f64::from(fog[2]),
+            a: 1.0,
+        });
+        // The sky and its models first, in a pass of their own: the
+        // world's then starts from a cleared depth.
+        if let Some(m) = &sky_models {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("world sky"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: clear,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&setup.sky_pipeline);
+            pass.set_bind_group(0, &setup.sky_group, &[]);
+            pass.draw(0..3, 0..1);
+            self.record_models(&mut pass, m);
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("world"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1025,12 +1114,11 @@ impl Renderer {
                 depth_slice: None,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: f64::from(fog[0]),
-                        g: f64::from(fog[1]),
-                        b: f64::from(fog[2]),
-                        a: 1.0,
-                    }),
+                    load: if sky_models.is_some() {
+                        wgpu::LoadOp::Load
+                    } else {
+                        clear
+                    },
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -1071,9 +1159,11 @@ impl Renderer {
                 && (along(side).abs() - depth * tan_x) * cos_x <= reach
                 && (along(w.up).abs() - depth * tan_y) * cos_y <= reach
         };
-        pass.set_pipeline(&setup.sky_pipeline);
-        pass.set_bind_group(0, &setup.sky_group, &[]);
-        pass.draw(0..3, 0..1);
+        if sky_models.is_none() {
+            pass.set_pipeline(&setup.sky_pipeline);
+            pass.set_bind_group(0, &setup.sky_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         pass.set_pipeline(&setup.pipeline);
         pass.set_bind_group(0, &setup.globals_group, &[]);
         for (x, y) in detailed {

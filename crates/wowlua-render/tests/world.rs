@@ -234,6 +234,46 @@ mock.advanceFrames(2, 1000 / 60)",
     assert!((day - dark).abs() > 5.0, "{day} {dark}");
 }
 
+/// The light's sky models (decision T556): WoW Forever's Zephras Isle has
+/// one in its global light (at the origin, 34 yards about it: a map's
+/// global light whatever its radius), drawn behind the world.
+#[test]
+fn the_sky_shows_its_models() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    let at = [3350.0, 750.0, 100.0];
+    let sky = wowlua_render::Assets::light(&mut assets, 2991, at, 1440.0).expect("the light");
+    eprintln!("Zephras Isle's sky models: {:?}", sky.skyboxes);
+    assert!(!sky.skyboxes.is_empty());
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = 3350.0, x = 750.0, z = 0, instanceID = 2991 }, facing = 2 })
+mock.advanceFrames(2, 1000 / 60)
+MoveViewUpStart()
+mock.advanceFrames(30, 1000 / 60)
+MoveViewUpStop()",
+    );
+    let scene = wowlua_engine::scene::build(&mut vm);
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    let image = r
+        .render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let png = wowlua_render::encode_png(&image).expect("encoded");
+        std::fs::write(std::path::PathBuf::from(dir).join("zephras-sky.png"), png)
+            .expect("written");
+    }
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]

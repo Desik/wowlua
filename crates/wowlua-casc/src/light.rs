@@ -93,7 +93,7 @@ struct Zone {
 pub struct Lights {
     by_id: HashMap<u32, Light>,
     by_map: HashMap<u32, Vec<u32>>,
-    /// Each map's global light (coordinates and radii 0).
+    /// Each map's global light (at the origin).
     global: HashMap<u32, u32>,
     params: HashMap<u32, Params>,
     zones: Vec<Zone>,
@@ -114,8 +114,8 @@ fn mix3(a: &mut [f32; 3], b: [f32; 3], w: f32) {
 }
 
 impl Sky {
-    /// Moves toward `other` by `w` (0 to 1); its sky models join with
-    /// their weights scaled, the earlier ones' faded by `1 - w`.
+    /// Moves toward `other` by `w` (0 to 1); its sky models, if any, join
+    /// with their weights scaled, the earlier ones faded by `1 - w`.
     pub fn mix(&mut self, other: &Sky, w: f32) {
         let w = w.clamp(0.0, 1.0);
         for (a, b) in [
@@ -142,7 +142,7 @@ impl Sky {
         self.fog_start += (other.fog_start - self.fog_start) * w;
         self.fog_end += (other.fog_end - self.fog_end) * w;
         self.glow += (other.glow - self.glow) * w;
-        if w > 0.0 {
+        if w > 0.0 && !other.skyboxes.is_empty() {
             for s in &mut self.skyboxes {
                 s.2 *= 1.0 - w;
             }
@@ -179,17 +179,30 @@ impl Lights {
                 params: p,
             };
             let map = r.int("ContinentID");
-            if l.at == [0.0; 3] && l.end <= 0.0 {
+            // (at the origin: the map's global light, whatever its radius:
+            // WoW Forever's Zephras Isle has one of 34 yards)
+            if l.at == [0.0; 3] {
                 out.global.entry(map).or_insert(r.id());
             } else {
                 out.by_map.entry(map).or_default().push(r.id());
             }
             out.by_id.insert(r.id(), l);
         }
+        // (a sky model by its file, or where the build names only its path,
+        // `….mdx`, the path's `.m2`: Classic Era's)
         let skybox = |id: u32| -> Option<(u32, u32)> {
             let row = skyboxes.as_ref()?.row(id)?;
-            let file = row.int("SkyboxFileDataID");
-            (file != 0).then(|| (file, row.int("Flags")))
+            let file = match row.int("SkyboxFileDataID") {
+                0 => {
+                    let name = row.string("Name")?;
+                    let stem = name
+                        .strip_suffix(".mdx")
+                        .or_else(|| name.strip_suffix(".mdl"))?;
+                    casc.id_of(&format!("{stem}.m2"))?
+                }
+                f => f,
+            };
+            Some((file, row.int("Flags")))
         };
         for r in params.rows() {
             out.params.insert(
