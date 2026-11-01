@@ -10,6 +10,34 @@ fn main() {
         .unwrap_or_else(|| "/Applications/World of Warcraft".into());
     let casc = wowlua_casc::Casc::open(Box::new(wowlua_casc::FsStorage { root }), &a[1])
         .expect("the product");
+    if a[2] == "skyboxes" {
+        let sky = Table::open(&casc, "LightSkybox").expect("LightSkybox");
+        let params = Table::open(&casc, "LightParams").expect("LightParams");
+        let light = Table::open(&casc, "Light").expect("Light");
+        for s in sky.rows() {
+            let users: Vec<u32> = params
+                .rows()
+                .filter(|p| p.int("LightSkyboxID") == s.id())
+                .map(|p| p.id())
+                .collect();
+            let places: Vec<String> = light
+                .rows()
+                .filter(|l| l.ints("LightParamsID").iter().any(|p| users.contains(p)))
+                .take(3)
+                .map(|l| format!("map {} {:?}", l.int("ContinentID"), l.floats("GameCoords")))
+                .collect();
+            println!(
+                "skybox {} {:?} flags {:#x} file {} params {} lights {:?}",
+                s.id(),
+                s.string("Name"),
+                s.int("Flags"),
+                s.int("SkyboxFileDataID"),
+                users.len(),
+                places
+            );
+        }
+        return;
+    }
     let map: u32 = a[2].parse().unwrap();
     let (n, w): (f32, f32) = (a[3].parse().unwrap(), a[4].parse().unwrap());
     let light = Table::open(&casc, "Light").expect("Light");
@@ -33,6 +61,13 @@ fn main() {
             r.float("GameFalloffEnd"),
             params
         );
+        if let Some(lp) = Table::open(&casc, "LightParams") {
+            let boxes: Vec<u32> = params
+                .iter()
+                .map(|p| lp.row(*p).map_or(0, |r| r.int("LightSkyboxID")))
+                .collect();
+            println!("  skyboxes by slot {boxes:?}");
+        }
         let mut keys: Vec<_> = data.rows_where("LightParamID", params[0]);
         keys.sort_by_key(|k| k.int("Time"));
         for k in keys {
