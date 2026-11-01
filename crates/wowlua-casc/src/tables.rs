@@ -51,6 +51,10 @@ const FILES: &[(&str, u32)] = &[
     ("ItemSearchName", 1273408),
     ("ItemSparse", 1572924),
     ("ItemSubClass", 1261604),
+    ("Light", 1375579),
+    ("LightData", 1375580),
+    ("LightParams", 1334669),
+    ("LightSkybox", 1308501),
     ("Map", 1349477),
     ("ModelFileData", 1337833),
     ("NPCModelItemSlotDisplayInfo", 1340661),
@@ -120,6 +124,8 @@ const FILES: &[(&str, u32)] = &[
     ("UiTextureAtlasMember", 897532),
     ("WorldMapOverlay", 1134579),
     ("WorldMapOverlayTile", 1957212),
+    ("ZoneLight", 1310253),
+    ("ZoneLightPoint", 1310256),
 ];
 
 /// The file IDs of the tables the engine reads (`wowlua data pull`).

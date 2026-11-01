@@ -168,6 +168,13 @@ fn advance_time(vm: &mut Vm, c: NativeCall) -> Ret {
     Ok(vec![])
 }
 
+fn set_time_of_day(vm: &mut Vm, c: NativeCall) -> Ret {
+    let hour = vm.check_number(&c, 1)?;
+    let minute = vm.opt_number(&c, 2, 0.0)?;
+    clock::set_time_of_day(vm, hour * 3600.0 + minute * 60.0);
+    Ok(vec![])
+}
+
 fn next_frame(vm: &mut Vm, c: NativeCall) -> Ret {
     let ms = vm.opt_number(&c, 1, 1000.0 / 60.0)?;
     clock::advance_frames(vm, 1, ms);
@@ -355,6 +362,7 @@ pub fn table(vm: &mut Vm) -> wowlua_vm::TableRef {
         ("sameSecret", same_secret),
         ("keepField", keep_field),
         ("advanceTime", advance_time),
+        ("setTimeOfDay", set_time_of_day),
         ("setLatency", set_latency),
         ("snapshotTaken", snapshot_taken),
         ("loggedOut", logged_out),

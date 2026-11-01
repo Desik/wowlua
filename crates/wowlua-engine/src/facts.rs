@@ -274,9 +274,14 @@ fn free_bag_slots(vm: &mut Vm, _c: NativeCall) -> Ret {
     Ok(vec![Value::Num(free as f64)])
 }
 
-/// Noon.
-fn game_time(_vm: &mut Vm, _c: NativeCall) -> Ret {
-    Ok(vec![Value::Num(12.0), Value::Num(0.0)])
+/// `GetGameTime()`: the realm's hour and minute, the clock's local time
+/// (decision T555; noon when a session starts).
+fn game_time(vm: &mut Vm, _c: NativeCall) -> Ret {
+    let minutes = crate::clock::time_of_day(vm) / 60.0;
+    Ok(vec![
+        Value::Num((minutes / 60.0).floor()),
+        Value::Num((minutes % 60.0).floor()),
+    ])
 }
 
 /// No zone: no PvP type, not a PvP subzone, no faction.

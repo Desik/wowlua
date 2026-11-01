@@ -1,6 +1,8 @@
 //! The 3D world behind the UI (decision T522): the terrain of the tiles
-//! within the view distance (`farclip`), as the camera sees it, lit by a
-//! sun and faded into the fog; the UI is drawn over it.
+//! within the view distance (`farclip`), as the camera sees it, under the
+//! sky, lit by the place's light at the realm's time of day and faded into
+//! its fog (decision T555: the installation's light tables; without them a
+//! plain sky and sun); the UI is drawn over it.
 //!
 //! A tile is read once (`Assets::terrain`) and kept on the GPU: its
 //! chunks' grids (each square four triangles around its middle, holes
@@ -39,11 +41,24 @@ struct Globals {
     sun: [f32; 4],
     fog: [f32; 4],
     eye: [f32; 4],
+    direct: [f32; 4],
+    ambient: [f32; 4],
 }
 
-/// The sky's and the fog's color (unverified: the zone's light, later).
+/// The sky pass's (`sky.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct SkyGlobals {
+    colors: [[f32; 4]; 6],
+    forward: [f32; 4],
+    right: [f32; 4],
+    up: [f32; 4],
+}
+
+/// Without the light tables: the sky's and the fog's color.
 const SKY: [f32; 3] = [0.62, 0.74, 0.86];
-/// Toward the sun (north, west, up), and how much light the shade keeps.
+/// Without them: toward the sun (north, west, up), and how much light the
+/// shade keeps.
 const SUN: [f32; 4] = [0.35, 0.25, 0.9, 0.45];
 /// Where the fog starts, of the view distance.
 const FOG_START: f32 = 0.55;
@@ -87,6 +102,9 @@ struct GpuTile {
 
 struct Setup {
     pipeline: wgpu::RenderPipeline,
+    sky_pipeline: wgpu::RenderPipeline,
+    sky: wgpu::Buffer,
+    sky_group: wgpu::BindGroup,
     globals_layout: wgpu::BindGroupLayout,
     globals: wgpu::Buffer,
     globals_group: wgpu::BindGroup,
@@ -354,8 +372,78 @@ impl Renderer {
                 ..Default::default()
             })
         };
+        // The sky: one triangle over the screen, behind everything.
+        let sky_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world sky"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let sky_shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("world sky"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("sky.wgsl").into()),
+        });
+        let sky_pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("world sky"),
+            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("world sky"),
+                bind_group_layouts: &[Some(&sky_layout)],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState {
+                module: &sky_shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &sky_shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let sky = d.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("world sky"),
+            size: std::mem::size_of::<SkyGlobals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let sky_group = d.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("world sky"),
+            layout: &sky_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sky.as_entire_binding(),
+            }],
+        });
         self.world.setup = Some(Setup {
             pipeline,
+            sky_pipeline,
+            sky,
+            sky_group,
             globals_layout,
             globals,
             globals_group,
@@ -802,20 +890,62 @@ impl Renderer {
             self.queue.write_buffer(buffer, 0, &bytes);
         }
         let f32s = |a: [f64; 3]| [a[0] as f32, a[1] as f32, a[2] as f32];
+        // The place's light at the realm's time of day (T555), else a plain
+        // sky and sun.
+        let far = w.far as f32;
+        let light = assets.light(w.map, w.eye, w.day_time);
+        let (sun, direct, ambient, fog, fog_start, fog_end, sky) = match &light {
+            Some(l) => {
+                let d = wowlua_casc::light::light_direction(w.day_time);
+                let end = l.fog_end.min(far).max(1.0);
+                (
+                    [-d[0] as f32, -d[1] as f32, -d[2] as f32, 0.0],
+                    l.direct,
+                    l.ambient,
+                    l.fog,
+                    l.fog_start.min(end * 0.99),
+                    end,
+                    l.sky,
+                )
+            }
+            None => {
+                let l = (SUN[0] * SUN[0] + SUN[1] * SUN[1] + SUN[2] * SUN[2]).sqrt();
+                (
+                    [SUN[0] / l, SUN[1] / l, SUN[2] / l, 0.0],
+                    [1.0 - SUN[3]; 3],
+                    [SUN[3]; 3],
+                    SKY,
+                    far * FOG_START,
+                    far,
+                    [SKY; 6],
+                )
+            }
+        };
+        let rgb = |c: [f32; 3]| [c[0], c[1], c[2], 1.0];
         let globals = Globals {
             view: crate::model::look_at(f32s(w.eye), f32s(w.look), f32s(w.up)),
             proj: crate::model::perspective(fov_y, aspect, NEAR, w.far as f32),
-            sun: {
-                let l = (SUN[0] * SUN[0] + SUN[1] * SUN[1] + SUN[2] * SUN[2]).sqrt();
-                [SUN[0] / l, SUN[1] / l, SUN[2] / l, SUN[3]]
-            },
-            fog: [SKY[0], SKY[1], SKY[2], w.far as f32 * FOG_START],
-            eye: [
-                w.eye[0] as f32,
-                w.eye[1] as f32,
-                w.eye[2] as f32,
-                w.far as f32,
-            ],
+            sun,
+            fog: [fog[0], fog[1], fog[2], fog_start],
+            eye: [w.eye[0] as f32, w.eye[1] as f32, w.eye[2] as f32, fog_end],
+            direct: rgb(direct),
+            ambient: rgb(ambient),
+        };
+        let sky_globals = {
+            let l = f32s(w.look);
+            let u = f32s(w.up);
+            let tan_y = (fov_y / 2.0).tan();
+            SkyGlobals {
+                colors: sky.map(rgb),
+                forward: [l[0], l[1], l[2], 0.0],
+                right: [
+                    l[1] * u[2] - l[2] * u[1],
+                    l[2] * u[0] - l[0] * u[2],
+                    l[0] * u[1] - l[1] * u[0],
+                    tan_y * aspect,
+                ],
+                up: [u[0], u[1], u[2], tan_y],
+            }
         };
         // The units as their models, posed for this camera (T526): those
         // the camera can see (4 yards' room around each, T538).
@@ -877,7 +1007,7 @@ impl Renderer {
                     (w.time * 1000.0) as u32,
                     globals.view,
                     globals.proj,
-                    ([-sun[0], -sun[1], -sun[2]], [0.55; 3], [0.65; 3]),
+                    ([-sun[0], -sun[1], -sun[2]], ambient, direct),
                     assets,
                 )
             })
@@ -885,6 +1015,8 @@ impl Renderer {
         let setup = self.world.setup.as_ref().expect("the world's setup");
         self.queue
             .write_buffer(&setup.globals, 0, bytemuck::bytes_of(&globals));
+        self.queue
+            .write_buffer(&setup.sky, 0, bytemuck::bytes_of(&sky_globals));
         let depth = &self.world.depth.as_ref().expect("the depth buffer").0;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("world"),
@@ -894,9 +1026,9 @@ impl Renderer {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: f64::from(SKY[0]),
-                        g: f64::from(SKY[1]),
-                        b: f64::from(SKY[2]),
+                        r: f64::from(fog[0]),
+                        g: f64::from(fog[1]),
+                        b: f64::from(fog[2]),
                         a: 1.0,
                     }),
                     store: wgpu::StoreOp::Store,
@@ -939,6 +1071,9 @@ impl Renderer {
                 && (along(side).abs() - depth * tan_x) * cos_x <= reach
                 && (along(w.up).abs() - depth * tan_y) * cos_y <= reach
         };
+        pass.set_pipeline(&setup.sky_pipeline);
+        pass.set_bind_group(0, &setup.sky_group, &[]);
+        pass.draw(0..3, 0..1);
         pass.set_pipeline(&setup.pipeline);
         pass.set_bind_group(0, &setup.globals_group, &[]);
         for (x, y) in detailed {

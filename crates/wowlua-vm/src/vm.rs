@@ -155,8 +155,9 @@ pub struct Clock {
 impl Default for Clock {
     fn default() -> Clock {
         Clock {
-            // 2026-01-01 00:00:00 UTC.
-            now: 1_767_225_600.0,
+            // 2026-01-01 12:00:00 UTC: noon, the world's time of day as the
+            // realm's (decision T555).
+            now: 1_767_268_800.0,
             utc_offset: 0,
             elapsed_ms: 0.0,
             profile_start: 0.0,

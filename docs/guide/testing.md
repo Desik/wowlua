@@ -267,6 +267,10 @@ end
 fails the test and says what it waited for; `config({ timeout = … })` or
 `@test(name, { timeout = … })` changes the limit.
 
+A session starts at 12:00 realm time. `mock.setTimeOfDay(21, 30)` moves the
+realm's clock to 21:30 of the same day (`GetGameTime`, the calendar, and the
+3D world's light), without running the timers in between.
+
 ## Snapshots and screenshots
 
 Two matchers catch a layout that changed when you didn't mean it to.
@@ -342,6 +346,7 @@ and bags, where it stands, the units around it and saved variables. Put it in
   "trained": [403, 529],
   "bags": { "0": { "slots": 16, "items": { "1": { "id": 159, "count": 5 } } } },
   "position": { "mapID": 1453, "zone": "Stormwind City", "x": 0.5, "y": 0.6 },
+  "time": "21:30",
   "units": [
     { "name": "Hogger", "level": 11, "reaction": "hostile", "target": true },
     { "name": "Jaina", "lastName": "Proudmoore", "player": true, "class": "MAGE", "level": 60 }
@@ -532,6 +537,11 @@ the units stand on the zone's ground (`UnitPosition` answers its height),
 and `wowlua screenshot --world` draws the terrain, its buildings, trees and
 props behind the UI, as far as the game's view distance setting reaches. It is off by default, so the
 places a test gives stay as they are.
+
+The world is lit as in the game: the zone's sky, sunlight, ambient light and
+fog come from your installation's light tables at the realm's time of day,
+so a profile's `"time": "21:30"` or `mock.setTimeOfDay(21, 30)` shows the
+evening. Each game version has its own light, as its client does.
 
 With the world on, units are named as in the game. A unit's name floats
 over it in its reaction's color, with an NPC's title under it
