@@ -89,10 +89,20 @@ fn the_addon_runs_alone_and_after_blizzard_s_ui() {
     // Blizzard's UI, as the page fetches it
     let ui = wowlua_web::run::blizzard_ui("camelot").expect("camelot's list");
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/types-src");
-    if !source.join("camelot/Interface").exists() {
+    // (the page fetches wow-ui-source's copy: where `fetch` put an installed
+    // client's in its place (T553), the copy a test run fetched)
+    let code = if source.join("camelot/.wowlua-installed").exists() {
+        let (commit, _) = wowlua_test::ui_commits("camelot").expect("the commit");
+        wowlua_driver::cache_root()
+            .map(|c| c.join(format!("blizzard-ui/camelot-{}", &commit[..12])))
+            .filter(|d| d.join(".wowlua-complete").exists())
+    } else {
+        Some(source.join("camelot"))
+    };
+    let Some(code) = code.filter(|d| d.join("Interface").exists()) else {
         eprintln!("skipped Blizzard's UI: no UI code (run `cargo xtask types fetch`)");
         return;
-    }
+    };
     let started = p.run(Options {
         flavor: "camelot".into(),
         blizzard_ui: true,
@@ -110,7 +120,7 @@ fn the_addon_runs_alone_and_after_blizzard_s_ui() {
     let root = ui["root"].as_str().unwrap();
     for path in ui["startup"].as_array().unwrap() {
         let path = path.as_str().unwrap();
-        if let Ok(bytes) = std::fs::read(source.join("camelot").join(path)) {
+        if let Ok(bytes) = std::fs::read(code.join(path)) {
             p.write_host_file(&format!("{root}/{path}"), &bytes);
         }
     }

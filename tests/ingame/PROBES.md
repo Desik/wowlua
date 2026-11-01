@@ -1051,3 +1051,21 @@ build has them all (`wowlua install` in `tests/ingame`).
 5. **Export**: mark the pull for export, `/reload`, and check that
    `WTF/Account/<account>/SavedVariables/StdTest.lua` holds
    `WowluaDevDB_StdTest` with `exports`; `wowlua prof report` reads it.
+
+## The Camelot update (decision T553)
+
+The declarations and Blizzard's UI code now come from the installed client
+(1.60.1.70658 or newer), but the engine's recordings are of 70425: its
+`Enum` corrections, CVars, number globals, colors, spells, talents and
+trainers. These steps record them again on the updated client.
+
+1. **Update the client**: start the Battle.net launcher, let it update WoW
+   Forever, and log in a character once (the update is then on disk).
+2. **Install StdTest**: in `tests/ingame`, `wowlua install --client _forever_`,
+   then `/reload` in game.
+3. **The engine**: `/stdtest engine`, wait for it to finish, then `/reload`.
+4. **Take it in**: `cargo xtask ingest`, then `cargo xtask types fetch` and
+   `cargo xtask types gen`.
+
+   wowlua: `engine_probe`'s `NEWER_BUILD` lists what 70658 changed. Recorded:
+   (to do)

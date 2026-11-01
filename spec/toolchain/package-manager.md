@@ -356,7 +356,12 @@ The WoW API is typed by **pre-generated `types` packages**, one per flavor:
    events with payloads, and secret-value annotations (→ `Secret<T>`, see
    [Types §2.11](../language/02-types.md#211-secret-values)). It is loaded by
    executing the documentation tables in a sandboxed Lua VM, as existing
-   community tools do. Where it is wrong or incomplete against the client
+   community tools do. Where the flavor's client is installed, `cargo xtask
+   types fetch` puts the installed build's UI code and global strings in
+   place of the mirror's (read as the test runner reads them,
+   [Emulator §17.7](emulator.md#177-blizzards-ui-code), decision T553), and
+   the declarations name that build besides the mirror commit CI fetches.
+   Where it is wrong or incomplete against the client
    (a recording or Blizzard's own calls), the generator corrects it, each
    with its evidence: `C_Timer`'s handles, the unit name functions' absent
    values, `GetCursorInfo`'s results (decision T259), and others.

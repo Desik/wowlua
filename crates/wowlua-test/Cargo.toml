@@ -12,6 +12,7 @@ authors.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 wowlua-api.workspace = true
+wowlua-casc = { workspace = true, optional = true }
 wowlua-driver.workspace = true
 wowlua-host.workspace = true
 wowlua-manifest.workspace = true
@@ -31,7 +32,8 @@ tempfile.workspace = true
 default = ["native"]
 # The computer's: fetching Blizzard's UI with git, the C Lua (spec M14,
 # decision T396). Without it the runner runs in a page.
-native = ["wowlua-driver/native"]
+# (and Blizzard's UI code read from the installation, decision T553)
+native = ["wowlua-driver/native", "dep:wowlua-casc"]
 # Screenshots drawn by the renderer, with the installation's art: `wowlua
 # test`'s and wowlua studio's camera (`camera::camera`).
 camera = ["native", "dep:wowlua-render"]

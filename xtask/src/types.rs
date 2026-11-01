@@ -225,6 +225,49 @@ pub fn fetch(dir: &Path) -> Result<()> {
         )?;
         fs::write(&marker, &stamp)?;
     }
+    // The installed clients' own UI code in place of the mirror's (decision
+    // T553): the mirror stays the copy CI fetches.
+    for (flavor, _, _) in flavor_tags()?
+        .into_iter()
+        .filter(|(f, _, _)| only.is_none() && wanted(f))
+    {
+        let Some(casc) = wowlua_test::installed_client(&flavor) else {
+            continue;
+        };
+        let target = dir.join(&flavor);
+        let marker = target.join(".wowlua-installed");
+        if fs::read_to_string(&marker).ok().as_deref() == Some(casc.version.as_str()) {
+            println!("{flavor}: the installed client {} (cached)", casc.version);
+            continue;
+        }
+        println!("{flavor}: reading the installed client {}", casc.version);
+        let addons = target.join("Interface/AddOns");
+        // (the mirror's addons, as committed: the folder may be a crawl's)
+        let seeds: Vec<String> = git(
+            &["ls-tree", "--name-only", "HEAD", "Interface/AddOns/"],
+            Some(&target),
+        )?
+        .lines()
+        .filter_map(|l| l.rsplit('/').next())
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned)
+        .collect();
+        let part = target.join("installed.part");
+        if part.exists() {
+            fs::remove_dir_all(&part)?;
+        }
+        let got = wowlua_test::extract_installed(&casc, &flavor, &seeds, &part)
+            .map_err(|e| anyhow::anyhow!("{flavor}: {e}"))?;
+        println!("{flavor}: {} addons, {} files", got.addons.len(), got.files);
+        fs::remove_dir_all(&addons)?;
+        fs::rename(part.join("Interface/AddOns"), &addons)?;
+        fs::rename(
+            part.join(wowlua_test::INSTALLED_STRINGS),
+            target.join(wowlua_test::INSTALLED_STRINGS),
+        )?;
+        fs::remove_dir_all(&part)?;
+        fs::write(&marker, &casc.version)?;
+    }
     let dumps = [
         ("strings", "GlobalStrings/enUS.lua"),
         ("api", "GlobalAPI.lua"),
@@ -677,7 +720,10 @@ pub fn generate(root: &Path, dir: &Path) -> Result<()> {
             .find(|(f, _, _)| *f == flavor)
             .map(|(_, b, c)| (*b, *c))
             .with_context(|| format!("no global strings for {flavor}"))?;
-        let strings_text = fs::read_to_string(dir.join("strings").join(format!("{commit}.lua")))
+        // (an installed client's own, `fetch` read them: T553)
+        let own = dir.join(&flavor).join(wowlua_test::INSTALLED_STRINGS);
+        let strings_text = fs::read_to_string(&own)
+            .or_else(|_| fs::read_to_string(dir.join("strings").join(format!("{commit}.lua"))))
             .context("global strings missing: run `cargo xtask types fetch`")?;
         // The engine's inventory of the client's C functions, where the
         // dump is the flavor's own client and `/stdtest inventory` has not
@@ -695,6 +741,15 @@ pub fn generate(root: &Path, dir: &Path) -> Result<()> {
         let ui_sha = git(&["rev-parse", "HEAD"], Some(&dir.join(&flavor)))?;
         // In full: the test runner fetches this commit (`test.blizzard-ui`).
         let ui_commit = ui_sha.trim();
+        // The installed client's code in its place (`fetch`, T553): its
+        // version named, and the commit CI fetches.
+        let installed = fs::read_to_string(dir.join(&flavor).join(".wowlua-installed")).ok();
+        let ui = match &installed {
+            Some(version) => format!(
+                "the installed client {version}, its UI code and global strings; in CI wow-ui-source {build}, commit {ui_commit}"
+            ),
+            None => format!("wow-ui-source {build}, commit {ui_commit}"),
+        };
         // The engine's record of the number globals the client defines
         // itself (`/stdtest engine`, `scalars`), where there is one.
         let number_globals: Vec<String> = fs::read_to_string(
@@ -711,7 +766,7 @@ pub fn generate(root: &Path, dir: &Path) -> Result<()> {
         .unwrap_or_default();
         flavors.push(wowlua_types_gen::FlavorDocs {
             id: flavor,
-            source: format!("wow-ui-source {build}, commit {ui_commit}; global string and API names from Ketho's BlizzardInterfaceResources {branch} {commit}"),
+            source: format!("{ui}; global string and API names from Ketho's BlizzardInterfaceResources {branch} {commit}"),
             files,
             ui_lua,
             ui_xml,

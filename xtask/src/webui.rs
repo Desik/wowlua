@@ -54,12 +54,13 @@ impl Host for Recording {
     }
 }
 
-/// The list for `flavor`, from its UI code (fetched when not cached).
+/// The list for `flavor`, from wow-ui-source's copy of its UI code (fetched
+/// when not cached; the browser fetches that copy, not an installation's).
 pub fn generate(flavor: &str) -> Result<String> {
     let (commit, strings) =
         wowlua_test::ui_commits(flavor).ok_or_else(|| anyhow!("no UI commit for {flavor}"))?;
-    let ui =
-        wowlua_test::ui_source(flavor, &|s| eprintln!("fetching {s}")).map_err(|e| anyhow!(e))?;
+    let ui = wowlua_test::upstream_ui_source(flavor, &|s| eprintln!("fetching {s}"))
+        .map_err(|e| anyhow!(e))?;
     let base = ui
         .interface
         .parent()

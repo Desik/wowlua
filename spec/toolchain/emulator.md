@@ -530,9 +530,21 @@ frames and the rest, so taint the addon spreads into Blizzard's code, and
 Blizzard code that fails because of what an addon did, show up as in game.
 Off by default: mock-only tests start faster (decision T186).
 
-The code comes from wow-ui-source at the flavor's client version and the
-global strings from the same dump the declarations use, downloaded on first
-use into a user cache keyed by version (decision T204; about 10 seconds and
+Where the flavor's client is installed, the code and the global strings are
+the installed build's own (decision T553), read once per build into the user
+cache (`$WOWLUA_HOME/cache/blizzard-ui/<flavor>-installed-<version>/`). The
+client names its interface files by hashes only, so they are found as the
+client finds them: from Blizzard's addons' names (wow-ui-source's, at the
+commit the declarations name), each addon's TOC (the client's suffixes
+first), the files it lists with `[Game]` and `[Family]` as the flavor's, its
+key bindings (`Bindings_<suffix>.xml`, `Bindings.xml`), the files its XML
+includes, and the addons it depends on or loads (`LoadAddOn("…")`). The global
+strings are the client's `GlobalStrings` table's that are set in the game.
+`WOWLUA_UI_FROM=upstream` leaves the installation out.
+
+Elsewhere (CI), the code comes from wow-ui-source at the flavor's client
+version and the global strings from the same dump the declarations use,
+downloaded on first use into a user cache keyed by version (decision T204; about 10 seconds and
 45 MB per flavor, once: `$WOWLUA_HOME/cache/blizzard-ui/`, at the commit the
 flavor's declarations name; `WOWLUA_UI_SOURCE` names a local copy instead), for
 each flavor that has test files to run (`build.flavor-files` may give them to

@@ -18,9 +18,9 @@ that client answered. The other flavors have their API documentation, the same
 engine modules and the generated stand-ins, but no recording of their own: what
 their clients answer differently is unverified.
 
-- **API functions:** 5,111 of the 5,111 documented camelot functions have
-  behaviour (100.0%): 1,056 modelled, 354 answered from recordings, 3,701 by a
-  documentation-based fill-in. Of all 7,175 C functions the client has,
+- **API functions:** 5,110 of the 5,113 documented camelot functions have
+  behaviour (99.9%): 1,056 modelled, 354 answered from recordings, 3,700 by a
+  documentation-based fill-in. Of all 7,178 C functions the client has,
   documented or not, 7,175 have behaviour.
 - **Widget methods:** 1,477 of the 1,477 documented methods have behaviour
   (100.0%).
@@ -32,11 +32,11 @@ their clients answer differently is unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
-| camelot | 5,111 | 5,111 (100.0%) | 354 | 1,477 | 1,477 (100.0%) | all |
+| camelot | 5,113 | 5,110 (99.9%) | 354 | 1,477 | 1,477 (100.0%) | all |
 | standard | 4,871 | 4,520 (92.8%) | 0 | 1,438 | 1,430 (99.4%) | none |
-| vanilla | 3,220 | 2,906 (90.2%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| tbc | 3,220 | 2,906 (90.2%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| mists | 3,221 | 2,903 (90.1%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| vanilla | 3,221 | 2,907 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| tbc | 3,221 | 2,907 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| mists | 3,222 | 2,904 (90.1%) | 0 | 1,360 | 1,348 (99.1%) | none |
 
 ## API behaviour
 
@@ -161,7 +161,7 @@ ones together):
 | `C_FriendList` | 32 | 12 | 1 | 19 | 0 |
 | `C_FunctionContainers` | 1 | 1 | 0 | 0 | 0 |
 | `C_GamePad` | 25 | 0 | 1 | 24 | 0 |
-| `C_GameRules` | 29 | 0 | 10 | 19 | 0 |
+| `C_GameRules` | 31 | 0 | 10 | 19 | 2 |
 | `C_GamepadTargeting` | 3 | 0 | 0 | 3 | 0 |
 | `C_GamepadUI` | 5 | 0 | 2 | 3 | 0 |
 | `C_Garrison` | 227 | 2 | 0 | 225 | 0 |
@@ -239,7 +239,7 @@ ones together):
 | `C_PerksActivities` | 10 | 0 | 1 | 9 | 0 |
 | `C_PerksProgram` | 24 | 0 | 0 | 24 | 0 |
 | `C_PetBattles` | 56 | 3 | 8 | 45 | 0 |
-| `C_PetInfo` | 13 | 2 | 0 | 11 | 0 |
+| `C_PetInfo` | 14 | 2 | 0 | 11 | 1 |
 | `C_PetJournal` | 80 | 2 | 3 | 75 | 0 |
 | `C_PhotoSharing` | 11 | 0 | 1 | 10 | 0 |
 | `C_Ping` | 6 | 0 | 2 | 4 | 0 |
@@ -346,14 +346,14 @@ ones together):
 | `math` | 38 | 38 | 0 | 0 | 0 |
 | `string` | 23 | 23 | 0 | 0 | 0 |
 | `table` | 23 | 23 | 0 | 0 | 0 |
-| **All** | 7,175 | 1,669 | 437 | 5,069 | 0 |
+| **All** | 7,178 | 1,669 | 437 | 5,069 | 3 |
 
 By where the function is listed:
 
 | List | Functions | Model | Recorded | Fill-in | Generated |
 |------|----------:|------:|---------:|--------:|----------:|
-| Blizzard's API documentation | 5,111 | 1,056 | 354 | 3,701 | 0 |
-| the client's other C functions (`/stdtest inventory`) | 2,064 | 613 | 83 | 1,368 | 0 |
+| Blizzard's API documentation | 5,113 | 1,056 | 354 | 3,700 | 3 |
+| the client's other C functions (`/stdtest inventory`) | 2,065 | 613 | 83 | 1,369 | 0 |
 | the engine's own, in neither list | 15 | 14 | 0 | 1 | 0 |
 
 Of the engine's own, Blizzard's UI code defines these in the client (Lua
@@ -2459,6 +2459,7 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - Frame rate and render scale (decisions T538, T539)
 - The camera (decisions T520, T521)
 - The dev tools (0.12.1)
+- The Camelot update (decision T553)
 
 ## In-game regressions
 
