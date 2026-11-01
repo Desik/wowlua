@@ -652,6 +652,12 @@ A bool. Default `false`.
 Loads Blizzard's own UI code before your addon, so tests and screenshots see
 the default UI around it.
 
+When the flavor's game is installed, wowlua reads Blizzard's code and global
+strings from your installation, once per game version, so tests run against
+exactly your client's UI. Without the game (in CI, say) it downloads them from
+wow-ui-source, at the version wowlua's API declarations come from. Set
+`WOWLUA_UI_FROM=upstream` to use the download even with the game installed.
+
 ### `test.profile`
 
 A string. Default: none.

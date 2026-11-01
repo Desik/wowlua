@@ -773,7 +773,11 @@ wowlua built in for wowlua studio): `check` and `build` (one line a problem,
 change), `test` (an optional filter and flavor, `coverage`: from the `json`
 and `coverage-json` reports, the counts, each failure with its message and
 place, the coverage totals and the files with the most lines not run;
-decision T549). A stop at an exception tells its details (`detail`, §18.12.3:
+decision T549); wowlua's own docs and the standard library's reference,
+built into `wowlua mcp` (decision T551): `wowlua_docs` (no path: each
+doc's path under `docs/` and title; a path: that doc) and
+`wowlua_reference` (no module: the `wowlua:*` modules; a module: its
+declarations and source with their doc comments). A stop at an exception tells its details (`detail`, §18.12.3:
 an error's message and stack, a blocked action, a taint). Sessions are `manual`
 clocked unless asked otherwise. A tool that runs code (`continue`, `step`,
 `click`, `advance`, …) answers once the session stops or settles, with its

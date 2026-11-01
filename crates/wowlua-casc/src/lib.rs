@@ -17,6 +17,8 @@ pub mod character;
 pub mod collide;
 pub mod db2;
 pub mod display;
+pub mod globalcolors;
+pub mod globalstrings;
 pub mod jenkins;
 pub mod m2;
 pub mod obj;

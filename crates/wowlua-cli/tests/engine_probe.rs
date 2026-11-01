@@ -247,6 +247,20 @@ fn client_globals() -> &'static std::collections::HashSet<String> {
     })
 }
 
+/// What the build the declarations come from (the installed client
+/// 1.60.1.70658, decision T553) changed since the battery was recorded on
+/// 70425: its documentation's enums, and one color's alpha in its table
+/// (`COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR`, T554), until the battery is
+/// recorded again.
+const NEWER_BUILD: &[&str] = &[
+    "probe.loadCalls.C_UIColor.GetColors",
+    "probe.enums.ForeverExperiencePreset.Modern",
+    "probe.enums.ForeverExperiencePreset.Enhanced",
+    "probe.enums.NamePartType.Combined",
+    "probe.enums.NamePartTypeMeta.MaxValue",
+    "probe.enums.NamePartTypeMeta.NumValues",
+];
+
 /// Results that depend on the character, the moment, the session or
 /// Blizzard's UI code (not loaded here): not compared.
 fn compared(key: &str) -> bool {
@@ -462,6 +476,9 @@ fn the_engine_answers_the_probe_battery_as_the_client_did() {
         } else {
             expected
         };
+        if NEWER_BUILD.contains(&key.as_str()) {
+            continue;
+        }
         match ours.get(key) {
             Some(mine) if same(key, expected, mine) => {}
             mine => differences.push(format!(
@@ -482,6 +499,7 @@ fn the_engine_answers_the_probe_battery_as_the_client_did() {
         .iter()
         .any(|p| k.starts_with(p))
             && !theirs.contains_key(*k)
+            && !NEWER_BUILD.contains(&k.as_str())
     }) {
         differences.push(format!(
             "{key}\n    client: <missing>\n    ours:   {}",

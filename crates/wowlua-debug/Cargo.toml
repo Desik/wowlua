@@ -12,7 +12,8 @@ authors.workspace = true
 default = ["native"]
 # Sessions of test files and the addon (through the test runner), and the
 # DAP server: not for the browser.
-native = ["dep:wowlua-test", "dep:wowlua-driver", "wowlua-driver/native", "wowlua-test/native"]
+# (and `wowlua mcp`'s standard library reference, decision T551)
+native = ["dep:wowlua-test", "dep:wowlua-driver", "dep:wowlua-stdlib", "wowlua-driver/native", "wowlua-test/native"]
 
 [dependencies]
 rustc-hash.workspace = true
@@ -22,6 +23,7 @@ wowlua-engine.workspace = true
 wowlua-vm.workspace = true
 wowlua-driver = { workspace = true, optional = true }
 wowlua-test = { workspace = true, optional = true }
+wowlua-stdlib = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

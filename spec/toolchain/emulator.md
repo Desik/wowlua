@@ -357,6 +357,16 @@ The WoW API the VM's code calls, per flavor.
   client's does), and the classic clients' `GetWeaponEnchantInfo` answers
   no enchant on each hand (Mists: two hands, 8 values; TBC and Classic Era
   also the ranged slot, 12).
+  The `Enum` and `Constants` the client changes and the number globals it
+  defines itself (`LE_*`) are camelot's recording; on standard, mists, tbc
+  and vanilla, what the documentation lacks comes from Ketho's dump of the
+  client (its `LuaEnum.lua`, at the commit the declarations take: older
+  than an installed client, so it only adds), and the tables the flavor's
+  own `EnvironmentCleanup.lua` removes are secure, as camelot's recorded
+  ones (`data/<flavor>-enums.txt`, `data/<flavor>-globals.txt`; decision
+  T554). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
+  table, by name, each byte times 1/255 in floats as the client's
+  (`data/<flavor>-colors.txt`, which `cargo xtask types gen` writes).
 - **Natives.** The API functions are natives of the VM, as the client's are C
   functions (decision T198): `[C]` in stack traces, the client's argument
   errors, no taint of their own.
@@ -530,9 +540,21 @@ frames and the rest, so taint the addon spreads into Blizzard's code, and
 Blizzard code that fails because of what an addon did, show up as in game.
 Off by default: mock-only tests start faster (decision T186).
 
-The code comes from wow-ui-source at the flavor's client version and the
-global strings from the same dump the declarations use, downloaded on first
-use into a user cache keyed by version (decision T204; about 10 seconds and
+Where the flavor's client is installed, the code and the global strings are
+the installed build's own (decision T553), read once per build into the user
+cache (`$WOWLUA_HOME/cache/blizzard-ui/<flavor>-installed-<version>/`). The
+client names its interface files by hashes only, so they are found as the
+client finds them: from Blizzard's addons' names (wow-ui-source's, at the
+commit the declarations name), each addon's TOC (the client's suffixes
+first), the files it lists with `[Game]` and `[Family]` as the flavor's, its
+key bindings (`Bindings_<suffix>.xml`, `Bindings.xml`), the files its XML
+includes, and the addons it depends on or loads (`LoadAddOn("…")`). The global
+strings are the client's `GlobalStrings` table's that are set in the game.
+`WOWLUA_UI_FROM=upstream` leaves the installation out.
+
+Elsewhere (CI), the code comes from wow-ui-source at the flavor's client
+version and the global strings from the same dump the declarations use,
+downloaded on first use into a user cache keyed by version (decision T204; about 10 seconds and
 45 MB per flavor, once: `$WOWLUA_HOME/cache/blizzard-ui/`, at the commit the
 flavor's declarations name; `WOWLUA_UI_SOURCE` names a local copy instead), for
 each flavor that has test files to run (`build.flavor-files` may give them to
@@ -548,7 +570,10 @@ takes the flavor's `Interface` folder and its global strings:
   ones on beta and PTR clients (WoW Forever's beta ran from `_classic_beta_`).
 - **Load order** (inferred, unverified): `LoadFirst` ones first, each after
   its `Dep`, `Dependencies`, `RequiredDep` and `OptionalDep` addons,
-  otherwise by name.
+  otherwise by name; a startup addon with `LoadWith` right after the addons
+  it names (Classic's Blizzard_UIParentPanelManager after Blizzard_UIParent,
+  before the `LoadFirst` addons that use its `UIPanelWindows`; decision
+  T554).
   File lines follow their inline directives; `[Family]`, `[Game]` and
   `[TextLocale]` name the flavor's folders (`Mainline`, `Camelot`, `enUS`).
   `ADDON_LOADED` fires after each addon.

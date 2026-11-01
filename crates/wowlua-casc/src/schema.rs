@@ -1332,6 +1332,14 @@ pub(crate) static LAYOUTS: &[(&str, Layouts)] = &[
     ),
     ("SpellName", &[(0x782EE721, &["$Name_lang"])]),
     (
+        "GlobalColor",
+        &[(0x760E0516, &["$LuaConstantName", "Color~4"])],
+    ),
+    (
+        "GlobalStrings",
+        &[(0xD40F6D96, &["$BaseTag", "$TagText_lang", "Flags~1"])],
+    ),
+    (
         "Spell",
         &[(
             0xE3D134FB,

@@ -623,9 +623,10 @@ fn get_max_level_for_expansion_level(vm: &mut Vm, c: NativeCall) -> Ret {
     Ok(vec![Value::Num(level)])
 }
 
-/// `GetMaxLevelForLatestExpansion()`: the flavor's max level from the
-/// flavor table (camelot's 60, as `GetMaxPlayerLevel` and
-/// `GetMaxLevelForPlayerExpansion` recorded; this one unverified).
+/// `GetMaxLevelForLatestExpansion()`, `GetMaxPlayerLevel()` and
+/// `GetMaxLevelForPlayerExpansion()`: the flavor's max level from the
+/// flavor table (camelot's 60, as the last two recorded; the first
+/// unverified, as the classic flavors' 60, 70 and 90).
 fn max_level_for_latest_expansion(vm: &mut Vm, _c: NativeCall) -> Ret {
     let level = wowlua_flavors::table()
         .flavor(&crate::engine(vm).flavor)
@@ -1594,6 +1595,11 @@ pub fn behaviours() -> Vec<(&'static str, NativeFn)> {
         ),
         (
             "GetMaxLevelForLatestExpansion",
+            max_level_for_latest_expansion,
+        ),
+        ("GetMaxPlayerLevel", max_level_for_latest_expansion),
+        (
+            "GetMaxLevelForPlayerExpansion",
             max_level_for_latest_expansion,
         ),
         ("GetNumClasses", get_num_classes),

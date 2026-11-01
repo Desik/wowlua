@@ -3715,6 +3715,7 @@ dependencies = [
  "wowlua-driver",
  "wowlua-engine",
  "wowlua-host",
+ "wowlua-stdlib",
  "wowlua-test",
  "wowlua-vm",
 ]
@@ -3974,6 +3975,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "wowlua-api",
+ "wowlua-casc",
  "wowlua-driver",
  "wowlua-engine",
  "wowlua-flavors",

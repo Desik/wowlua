@@ -243,14 +243,19 @@ pub async fn publish(
     headers: HeaderMap,
     multipart: std::result::Result<Multipart, MultipartRejection>,
 ) -> Result<Response> {
-    let login = user(&app, &headers)?;
-    check_name(&name)?;
-    if semver::Version::parse(&version).is_err() {
-        return Err(ApiError::bad(
-            "invalid-version",
-            format!("`{version}` is not a SemVer version"),
-        ));
-    }
+    // (checked now, answered after the upload is read: a client still
+    // sending when the connection closes sees it aborted on Windows, not
+    // the answer; decision T552)
+    let checked = user(&app, &headers).and_then(|login| {
+        check_name(&name)?;
+        if semver::Version::parse(&version).is_err() {
+            return Err(ApiError::bad(
+                "invalid-version",
+                format!("`{version}` is not a SemVer version"),
+            ));
+        }
+        Ok(login)
+    });
     let max = app.config.max_archive;
     let declared = headers
         .get(header::CONTENT_LENGTH)
@@ -265,6 +270,18 @@ pub async fn publish(
             format!("a publish is `multipart/form-data` with `manifest` and `archive`: {e}"),
         )
     })?;
+    let login = match checked {
+        Ok(login) => login,
+        Err(e) => {
+            // the upload read (its size is capped) and dropped
+            while let Ok(Some(field)) = multipart.next_field().await {
+                if field.bytes().await.is_err() {
+                    break;
+                }
+            }
+            return Err(e);
+        }
+    };
     let mut manifest: Option<String> = None;
     let mut archive: Option<Vec<u8>> = None;
     loop {

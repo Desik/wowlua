@@ -10,7 +10,8 @@
 //! from what Blizzard's code needs at load (unverified beyond that):
 //! Blizzard_SharedXMLBase and Blizzard_SharedXML, then the secure
 //! environment's addons, then the `LoadFirst` ones, then the rest, by
-//! name, each after the addons it depends on.
+//! name, each after the addons it depends on and right before the startup
+//! addons that load with it (`LoadWith`).
 //!
 //! `UseSecureEnvironment` addons run with globals of their own, reading
 //! through to the addons' (theirs stay out of them: WoW Forever's addons
@@ -179,6 +180,10 @@ struct Addon {
     toc: wowlua_toc::ParsedToc,
     deps: Vec<String>,
     load_first: bool,
+    /// `LoadWith`: the addons it loads with, lowercased (a startup addon
+    /// loads right after them: Classic's Blizzard_UIParentPanelManager
+    /// with Blizzard_UIParent, before the LoadFirst addons that use it).
+    load_with: Vec<String>,
     /// Load-on-demand: loaded at startup only as a startup addon's
     /// dependency.
     on_demand: bool,
@@ -277,6 +282,12 @@ fn startup_addons(interface: &Path, t: &Target) -> (Vec<Addon>, HashMap<String, 
             }
         }
         let load_first = directive(&toc, t, "LoadFirst").iter().any(|v| on(v));
+        let load_with = directive(&toc, t, "LoadWith")
+            .iter()
+            .flat_map(|v| v.split(','))
+            .map(|d| d.trim().to_ascii_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect();
         let secure = directive(&toc, t, "UseSecureEnvironment")
             .iter()
             .any(|v| on(v));
@@ -288,6 +299,7 @@ fn startup_addons(interface: &Path, t: &Target) -> (Vec<Addon>, HashMap<String, 
                 toc,
                 deps,
                 load_first,
+                load_with,
                 on_demand,
                 secure,
             },
@@ -300,6 +312,7 @@ fn startup_addons(interface: &Path, t: &Target) -> (Vec<Addon>, HashMap<String, 
     fn visit(
         n: &str,
         all: &HashMap<String, Addon>,
+        names: &[String],
         seen: &mut HashSet<String>,
         order: &mut Vec<String>,
     ) {
@@ -308,9 +321,15 @@ fn startup_addons(interface: &Path, t: &Target) -> (Vec<Addon>, HashMap<String, 
         }
         if let Some(a) = all.get(n) {
             for d in &a.deps {
-                visit(&d.to_ascii_lowercase(), all, seen, order);
+                visit(&d.to_ascii_lowercase(), all, names, seen, order);
             }
             order.push(n.to_string());
+            // the startup addons that load with it, right after
+            for w in names {
+                if !all[w].on_demand && all[w].load_with.iter().any(|l| l == n) {
+                    visit(w, all, names, seen, order);
+                }
+            }
         }
     }
     // The shared base first: LoadFirst addons need it without naming it
@@ -318,7 +337,7 @@ fn startup_addons(interface: &Path, t: &Target) -> (Vec<Addon>, HashMap<String, 
     // SecondsFormatterConstants at load, Blizzard_Game EventUtil).
     for base in ["blizzard_sharedxmlbase", "blizzard_sharedxml"] {
         if all.contains_key(base) {
-            visit(base, &all, &mut seen, &mut order);
+            visit(base, &all, &names, &mut seen, &mut order);
         }
     }
     // Then the secure environment's addons (Blizzard_UnitFrame builds
@@ -326,13 +345,13 @@ fn startup_addons(interface: &Path, t: &Target) -> (Vec<Addon>, HashMap<String, 
     // dependency on it).
     for n in &names {
         if all[n].secure && !all[n].on_demand {
-            visit(n, &all, &mut seen, &mut order);
+            visit(n, &all, &names, &mut seen, &mut order);
         }
     }
     for first in [true, false] {
         for n in &names {
             if all[n].load_first == first && !all[n].on_demand {
-                visit(n, &all, &mut seen, &mut order);
+                visit(n, &all, &names, &mut seen, &mut order);
             }
         }
     }

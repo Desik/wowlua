@@ -121,6 +121,14 @@ names contain a filter, and answers with how many passed and each failure
 with its message and line; with `coverage` it adds the totals and the files
 with the most lines that never ran.
 
+### Look things up
+
+`wowlua_docs` lists wowlua's docs and reads one, and `wowlua_reference` lists
+the standard library's modules and gives one's declarations and source with
+their doc comments, such as `wowlua:events` or `wowlua:mock`. Both are built
+into `wowlua`, so the agent reads the docs of exactly the version you run,
+without web access.
+
 ## Why its results repeat
 
 An agent's sessions run on a manual clock unless it asks for real time: game
