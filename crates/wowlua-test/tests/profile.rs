@@ -21,6 +21,9 @@ fn renown_is_applied_by_faction_and_optional() {
             )
             .expect("compiles");
         let result = vm.call(f, &[]).expect("renown is readable");
-        assert_eq!(result, [Value::Num(16.0), Value::Num(0.0)]);
+        assert!(matches!(
+            result.as_slice(),
+            [Value::Num(16.0), Value::Num(0.0)]
+        ));
     }
 }
