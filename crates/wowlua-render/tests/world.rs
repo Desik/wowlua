@@ -274,6 +274,75 @@ MoveViewUpStop()",
     }
 }
 
+/// The terrain's liquids (decision T557): the river of Northshire's tile
+/// (its largest liquid), seen from 15 yards north of the middle of its
+/// squares; the riverbed and the player standing in it show through.
+#[test]
+fn the_water_is_drawn() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    // (the largest liquid of Northshire's tile, the middle of its squares)
+    let mut lib = wowlua_casc::display::Library::default();
+    let tile = lib
+        .terrain_tile(&casc, 0, 32, 48)
+        .expect("Northshire's tile");
+    let l = tile
+        .liquids
+        .iter()
+        .max_by_key(|l| l.exists.iter().filter(|e| **e).count())
+        .expect("its water");
+    let (north, west) = wowlua_casc::adt::corner(32, 48);
+    let unit = wowlua_casc::adt::UNIT;
+    let squares: Vec<(f64, f64)> = (0..usize::from(l.height))
+        .flat_map(|j| (0..usize::from(l.width)).map(move |i| (i, j)))
+        .filter(|&(i, j)| l.exists[j * usize::from(l.width) + i])
+        .map(|(i, j)| (i as f64 + 0.5, j as f64 + 0.5))
+        .collect();
+    let count = squares.len() as f64;
+    let (ci, cj) = squares
+        .iter()
+        .fold((0.0, 0.0), |a, s| (a.0 + s.0 / count, a.1 + s.1 / count));
+    let n = north - f64::from(l.chunk.1) * wowlua_casc::adt::CHUNK - (f64::from(l.y) + cj) * unit;
+    let w = west - f64::from(l.chunk.0) * wowlua_casc::adt::CHUNK - (f64::from(l.x) + ci) * unit;
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        &format!(
+            "mock.moveTo({{ world = {{ y = {}, x = {w}, z = 0, instanceID = 0 }}, facing = math.pi }})
+mock.advanceFrames(2, 1000 / 60)
+CameraZoomOut(20)",
+            n + 15.0
+        ),
+    );
+    // (WoW Forever's PBR river: drawn with its own colors and water's frames)
+    let kinds = wowlua_render::Assets::liquids(&mut assets).expect("the liquids");
+    let kind = kinds.resolve(l).expect("its type").kind;
+    assert_eq!(kind.look, wowlua_casc::liquid::Look::Pbr, "{}", kind.name);
+    assert!(kind.colors.len() >= 2);
+    assert!(kinds.kind(1).is_some_and(|k| !k.frames.is_empty()));
+    let scene = wowlua_engine::scene::build(&mut vm);
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    let image = r
+        .render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let png = wowlua_render::encode_png(&image).expect("encoded");
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("northshire-water.png"),
+            png,
+        )
+        .expect("written");
+    }
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]

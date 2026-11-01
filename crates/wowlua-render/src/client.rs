@@ -414,6 +414,13 @@ impl Assets for ClientAssets {
         lights.at(map, at, day_time, wowlua_casc::light::Kind::Clear)
     }
 
+    fn liquids(&mut self) -> Option<Arc<wowlua_casc::liquid::Liquids>> {
+        let casc = self.casc.as_ref()?;
+        let lib = library_of(casc);
+        let mut lib = lib.lock().ok()?;
+        lib.liquids(casc)
+    }
+
     fn minimap_tile(&mut self, map: u32, x: i32, y: i32) -> Option<u32> {
         let casc = self.casc.as_ref()?;
         let lib = library_of(casc);

@@ -1129,3 +1129,60 @@ fn reads_the_light_of_a_place_and_time() {
         assert!((100.0..2000.0).contains(&noon.fog_end), "{product}");
     }
 }
+
+/// Each product's liquids (decision T557): Elwynn's tiles about Northshire
+/// have water, its heights about the water's level.
+#[test]
+fn reads_the_liquids() {
+    let Some(root) = install() else {
+        eprintln!("no WoW installation: skipped");
+        return;
+    };
+    let storage = FsStorage { root: root.clone() };
+    for (product, version) in Casc::products(&storage) {
+        let casc = Casc::open(Box::new(FsStorage { root: root.clone() }), &product).expect("opens");
+        let mut lib = wowlua_casc::display::Library::default();
+        let mut kinds = std::collections::BTreeMap::new();
+        let mut count = 0;
+        for x in 31..34 {
+            for y in 47..50 {
+                let Some(tile) = lib.terrain_tile(&casc, 0, x, y) else {
+                    continue;
+                };
+                for l in &tile.liquids {
+                    count += 1;
+                    *kinds.entry((l.kind, l.object)).or_insert(0) += 1;
+                    let (heights, _) = l.heights(if l.object < 42 { l.object } else { 0 });
+                    assert!(
+                        heights
+                            .iter()
+                            .all(|h| h.is_finite() && *h > -500.0 && *h < 2000.0),
+                        "{product}: {heights:?}"
+                    );
+                }
+            }
+        }
+        eprintln!("{product} {version}: {count} liquids, (type, object): {kinds:?}");
+        let tables = wowlua_casc::liquid::Liquids::read(&casc).expect("the liquid tables");
+        let tile = lib
+            .terrain_tile(&casc, 0, 32, 48)
+            .expect("Northshire's tile");
+        let seen: std::collections::BTreeSet<String> = tile
+            .liquids
+            .iter()
+            .filter_map(|l| tables.resolve(l))
+            .map(|r| {
+                format!(
+                    "{} {:?} format {} {} frames",
+                    r.kind.name,
+                    r.kind.look,
+                    r.format,
+                    r.kind.frames.len()
+                )
+            })
+            .collect();
+        eprintln!("  Northshire's: {seen:?}");
+        assert!(!seen.is_empty(), "{product}");
+        assert!(count > 0, "{product}");
+    }
+}

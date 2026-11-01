@@ -43,7 +43,54 @@ struct Globals {
     eye: [f32; 4],
     direct: [f32; 4],
     ambient: [f32; 4],
+    /// The light's water colors (T557): rivers' and lakes' near and far,
+    /// the sea's, each with its alpha (shallow, deep).
+    river: [f32; 4],
+    river_far: [f32; 4],
+    ocean: [f32; 4],
+    ocean_far: [f32; 4],
 }
+
+/// A liquid's surface point (`liquid.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct LVertex {
+    pos: [f32; 3],
+    uv: [f32; 2],
+    depth: f32,
+}
+
+/// A liquid type's part of a tile's liquid mesh: its frames (textures),
+/// whether it glows, whether it is the sea, its indices.
+struct LiquidDraw {
+    frames: Vec<usize>,
+    /// How it is drawn: glowing, the sea, its own colors (`liquid.wgsl`).
+    how: wgpu::BindGroup,
+    start: u32,
+    count: u32,
+}
+
+struct GpuLiquid {
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    draws: Vec<LiquidDraw>,
+}
+
+struct LiquidSetup {
+    pipeline: wgpu::RenderPipeline,
+    frame_layout: wgpu::BindGroupLayout,
+    how_layout: wgpu::BindGroupLayout,
+    /// Each frame's texture (by its index) bound.
+    frames: HashMap<usize, wgpu::BindGroup>,
+}
+
+/// A liquid type's part of a tile's mesh: its frames (files), glowing, the
+/// sea, its own colors (near, far), its indices' start and count.
+type LiquidPart = (Vec<u32>, bool, bool, Option<([f32; 3], [f32; 3])>, u32, u32);
+
+/// The liquids' animation: frames a second (unverified: a 30-frame
+/// cycle in two seconds).
+const LIQUID_FPS: f64 = 15.0;
 
 /// The sky pass's (`sky.wgsl`).
 #[repr(C)]
@@ -100,6 +147,7 @@ struct GpuTile {
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     chunks: Vec<GpuChunk>,
+    liquid: Option<GpuLiquid>,
 }
 
 struct Setup {
@@ -120,6 +168,7 @@ struct Setup {
 #[derive(Default)]
 pub(crate) struct World {
     setup: Option<Setup>,
+    liquid_setup: Option<LiquidSetup>,
     tiles: HashMap<(u32, i32, i32), Option<GpuTile>>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
     building_setup: Option<BuildingSetup>,
@@ -427,6 +476,77 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // The liquids: the world's globals, a frame, how it is drawn.
+        let frame_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world liquid frame"),
+            entries: &[texture_entry(0), sampler_entry(1)],
+        });
+        let how_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world liquid how"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let liquid_shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("world liquid"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("liquid.wgsl").into()),
+        });
+        let liquid_pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("world liquid"),
+            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("world liquid"),
+                bind_group_layouts: &[
+                    Some(&globals_layout),
+                    Some(&frame_layout),
+                    Some(&how_layout),
+                ],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState {
+                module: &liquid_shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<LVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32],
+                })],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &liquid_shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        self.world.liquid_setup = Some(LiquidSetup {
+            pipeline: liquid_pipeline,
+            frame_layout,
+            how_layout,
+            frames: HashMap::new(),
+        });
         let sky = d.create_buffer(&wgpu::BufferDescriptor {
             label: Some("world sky"),
             size: std::mem::size_of::<SkyGlobals>() as u64,
@@ -534,13 +654,120 @@ impl Renderer {
                     ],
                 });
             }
+            let liquid = self.gpu_liquid(&tile, x, y, assets);
             GpuTile {
                 vertices,
                 indices: index_buffer,
                 chunks,
+                liquid,
             }
         });
         self.world.tiles.insert((map, x, y), gpu);
+    }
+
+    /// A tile's liquids on the GPU (decision T557), their frames' textures
+    /// read and bound; none for a tile without.
+    fn gpu_liquid(
+        &mut self,
+        tile: &Tile,
+        x: i32,
+        y: i32,
+        assets: &mut dyn Assets,
+    ) -> Option<GpuLiquid> {
+        if tile.liquids.is_empty() {
+            return None;
+        }
+        let kinds = assets.liquids()?;
+        let (verts, indices, parts) = liquid_mesh(tile, x, y, &kinds);
+        if indices.is_empty() {
+            return None;
+        }
+        let mut draws = Vec::with_capacity(parts.len());
+        for (files, glowing, ocean, colors, start, count) in parts {
+            let frames: Vec<usize> = files
+                .iter()
+                .map(|&f| self.model_texture(f, assets))
+                .collect();
+            let lsetup = self.world.liquid_setup.as_ref()?;
+            let flag = |b: bool| if b { 1.0 } else { 0.0 };
+            let (near, far) = colors.unwrap_or_default();
+            let v: [f32; 12] = [
+                flag(glowing),
+                flag(ocean),
+                flag(colors.is_some()),
+                0.0,
+                near[0],
+                near[1],
+                near[2],
+                1.0,
+                far[0],
+                far[1],
+                far[2],
+                1.0,
+            ];
+            let buffer = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("world liquid how"),
+                    contents: bytemuck::cast_slice(&v),
+                    usage: wgpu::BufferUsages::UNIFORM,
+                });
+            let how = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("world liquid how"),
+                layout: &lsetup.how_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.as_entire_binding(),
+                }],
+            });
+            draws.push(LiquidDraw {
+                frames,
+                how,
+                start,
+                count,
+            });
+        }
+        let setup = self.world.setup.as_ref()?;
+        let lsetup = self.world.liquid_setup.as_mut()?;
+        for &f in draws.iter().flat_map(|d| d.frames.iter()) {
+            if lsetup.frames.contains_key(&f) {
+                continue;
+            }
+            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("world liquid frame"),
+                layout: &lsetup.frame_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.textures[f].view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&setup.tiled),
+                    },
+                ],
+            });
+            lsetup.frames.insert(f, group);
+        }
+        let vertices = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("liquid"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let indices = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("liquid"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        Some(GpuLiquid {
+            vertices,
+            indices,
+            draws,
+        })
     }
 
     /// Draws the world into `view`: at `RenderScale` of its pixels each
@@ -924,6 +1151,21 @@ impl Renderer {
             }
         };
         let rgb = |c: [f32; 3]| [c[0], c[1], c[2], 1.0];
+        let with = |c: [f32; 3], a: f32| [c[0], c[1], c[2], a];
+        let water = match &light {
+            Some(l) => (
+                with(l.river_close, l.water_alpha[0]),
+                with(l.river_far, l.water_alpha[1]),
+                with(l.ocean_close, l.water_alpha[2]),
+                with(l.ocean_far, l.water_alpha[3]),
+            ),
+            None => (
+                [0.2, 0.35, 0.45, 0.5],
+                [0.1, 0.2, 0.3, 0.85],
+                [0.2, 0.35, 0.45, 0.5],
+                [0.1, 0.2, 0.3, 0.85],
+            ),
+        };
         let globals = Globals {
             view: crate::model::look_at(f32s(w.eye), f32s(w.look), f32s(w.up)),
             proj: crate::model::perspective(fov_y, aspect, NEAR, w.far as f32),
@@ -932,6 +1174,10 @@ impl Renderer {
             eye: [w.eye[0] as f32, w.eye[1] as f32, w.eye[2] as f32, fog_end],
             direct: rgb(direct),
             ambient: rgb(ambient),
+            river: water.0,
+            river_far: water.1,
+            ocean: water.2,
+            ocean_far: water.3,
         };
         let sky_globals = {
             let l = f32s(w.look);
@@ -1166,7 +1412,7 @@ impl Renderer {
         }
         pass.set_pipeline(&setup.pipeline);
         pass.set_bind_group(0, &setup.globals_group, &[]);
-        for (x, y) in detailed {
+        for &(x, y) in &detailed {
             let Some(Some(tile)) = self.world.tiles.get(&(w.map, x, y)) else {
                 continue;
             };
@@ -1272,7 +1518,136 @@ impl Renderer {
                 }
             }
         }
+        // The liquids last, seen through: what is under them shows (T557).
+        if let Some(lsetup) = self.world.liquid_setup.as_ref() {
+            pass.set_pipeline(&lsetup.pipeline);
+            pass.set_bind_group(0, &setup.globals_group, &[]);
+            let tick = (w.time * LIQUID_FPS) as usize;
+            for &(x, y) in &detailed {
+                let Some(Some(tile)) = self.world.tiles.get(&(w.map, x, y)) else {
+                    continue;
+                };
+                let Some(l) = &tile.liquid else {
+                    continue;
+                };
+                pass.set_vertex_buffer(0, l.vertices.slice(..));
+                pass.set_index_buffer(l.indices.slice(..), wgpu::IndexFormat::Uint32);
+                for d in &l.draws {
+                    let Some(group) = d
+                        .frames
+                        .get(tick % d.frames.len().max(1))
+                        .and_then(|f| lsetup.frames.get(f))
+                    else {
+                        continue;
+                    };
+                    pass.set_bind_group(1, group, &[]);
+                    pass.set_bind_group(2, &d.how, &[]);
+                    pass.draw_indexed(d.start..d.start + d.count, 0, 0..1);
+                }
+            }
+        }
     }
+}
+
+/// A tile's liquids as one mesh (decision T557): each liquid's points over
+/// its chunk's squares (its heights, or its level where it stores none),
+/// its type's frames, the squares it has; by type. Its texture repeats
+/// every two of the grid's squares (unverified). WoW Forever's PBR water
+/// is drawn as its water until its own look is (T557).
+#[allow(clippy::type_complexity)]
+fn liquid_mesh(
+    tile: &Tile,
+    column: i32,
+    row: i32,
+    kinds: &wowlua_casc::liquid::Liquids,
+) -> (Vec<LVertex>, Vec<u32>, Vec<LiquidPart>) {
+    use wowlua_casc::liquid::Look;
+    let (north, west) = adt::corner(column, row);
+    let mut verts = Vec::new();
+    let mut by_kind: Vec<(u32, LiquidPart, Vec<u32>)> = Vec::new();
+    for l in &tile.liquids {
+        let Some(r) = kinds.resolve(l) else {
+            continue;
+        };
+        let (frames, glowing) = match r.kind.look {
+            Look::Glowing => (r.kind.frames.clone(), true),
+            Look::Pbr => (
+                kinds.kind(1).map_or_else(Vec::new, |k| k.frames.clone()),
+                false,
+            ),
+            Look::Water => (r.kind.frames.clone(), false),
+        };
+        if frames.is_empty() {
+            continue;
+        }
+        let (heights, depths) = l.heights(r.format);
+        let (w, h) = (usize::from(l.width), usize::from(l.height));
+        let n0 = north - f64::from(l.chunk.1) * CHUNK - f64::from(l.y) * UNIT;
+        let w0 = west - f64::from(l.chunk.0) * CHUNK - f64::from(l.x) * UNIT;
+        let base = verts.len() as u32;
+        for j in 0..=h {
+            for i in 0..=w {
+                let k = j * (w + 1) + i;
+                let (pn, pw) = (n0 - j as f64 * UNIT, w0 - i as f64 * UNIT);
+                let height = heights
+                    .get(k)
+                    .copied()
+                    .filter(|v| v.is_finite())
+                    .unwrap_or(l.min);
+                verts.push(LVertex {
+                    pos: [pn as f32, pw as f32, height],
+                    uv: [(-pw / (UNIT * 2.0)) as f32, (-pn / (UNIT * 2.0)) as f32],
+                    depth: f32::from(depths.get(k).copied().unwrap_or(255)) / 255.0,
+                });
+            }
+        }
+        let slot = match by_kind.iter().position(|b| b.0 == r.kind.id) {
+            Some(s) => s,
+            None => {
+                let colors = match r.kind.colors.as_slice() {
+                    [near, far, ..] => Some((*near, *far)),
+                    [one] => Some((*one, *one)),
+                    [] => None,
+                };
+                by_kind.push((
+                    r.kind.id,
+                    (frames, glowing, r.kind.ocean, colors, 0, 0),
+                    Vec::new(),
+                ));
+                by_kind.len() - 1
+            }
+        };
+        let list = &mut by_kind[slot].2;
+        for sy in 0..h {
+            for sx in 0..w {
+                if !l.exists.get(sy * w + sx).copied().unwrap_or(false) {
+                    continue;
+                }
+                let nw = base + (sy * (w + 1) + sx) as u32;
+                let (ne, sw) = (nw + 1, nw + (w + 1) as u32);
+                let se = sw + 1;
+                list.extend([nw, ne, se, nw, se, sw]);
+            }
+        }
+    }
+    let mut indices = Vec::new();
+    let mut parts = Vec::new();
+    for (_, (frames, glowing, ocean, colors, _, _), list) in by_kind {
+        if list.is_empty() {
+            continue;
+        }
+        let start = indices.len() as u32;
+        indices.extend(list);
+        parts.push((
+            frames,
+            glowing,
+            ocean,
+            colors,
+            start,
+            indices.len() as u32 - start,
+        ));
+    }
+    (verts, indices, parts)
 }
 
 #[repr(C)]
