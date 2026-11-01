@@ -193,7 +193,10 @@ fn an_agent_drives_and_debugs_an_addon() {
     // (the UI is 768 high: a 4:3 screen is 1024 wide, a 16:9 one 1365)
     m.ok("set_screen", json!({ "width": 1024, "height": 768 }));
     assert_eq!(
-        m.ok("eval", json!({ "expression": "math.floor(GetScreenWidth() + 0.5)" })),
+        m.ok(
+            "eval",
+            json!({ "expression": "math.floor(GetScreenWidth() + 0.5)" })
+        ),
         "1024 (number)"
     );
     let world = m.ok("save_world", json!({}));
