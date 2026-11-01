@@ -766,8 +766,9 @@ raised); what a frame or a point is and the world, as wowlua studio's
 requests (§18.12.3): `inspect` (by a frame tree `id`), `pick`, `units`,
 `events` (`log` starts or stops the log, else the events since the last
 read), `save_world`, `set_screen`; and the package's commands, run by the
-host in the package without a session (`Launcher::command`, `wowlua`
-itself for `wowlua mcp`): `check` and `build` (one line a problem,
+host in the package without a session (`Launcher::command` with a
+`PackageCommand`, decision T550: `wowlua` itself for `wowlua mcp`, the
+wowlua built in for wowlua studio): `check` and `build` (one line a problem,
 `--message-format short`), `fmt` (`check`: only the files it would
 change), `test` (an optional filter and flavor, `coverage`: from the `json`
 and `coverage-json` reports, the counts, each failure with its message and

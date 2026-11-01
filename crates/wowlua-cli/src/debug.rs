@@ -4,6 +4,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use wowlua_debug::dap::{CommandOutput, PackageCommand};
+
 use crate::GlobalArgs;
 use crate::output::Output;
 
@@ -42,8 +44,92 @@ impl wowlua_debug::dap::Launcher for CliLauncher {
         )
     }
 
-    /// The command as wowlua itself runs it, in the package.
-    fn command(&self, args: &[String]) -> Result<(bool, String), String> {
+    /// The command as wowlua itself runs it, in the package; a test run's
+    /// reports in a folder of their own, read back.
+    fn command(&self, command: &PackageCommand) -> Result<CommandOutput, String> {
+        // (for an agent: one line a problem, no colours)
+        let quiet = ["--message-format", "short", "--color", "never"].map(String::from);
+        let flavor = |f: &Option<String>| -> Vec<String> {
+            f.iter()
+                .flat_map(|f| ["--flavor".to_string(), f.clone()])
+                .collect()
+        };
+        let mut reports = None;
+        let args: Vec<String> = match command {
+            PackageCommand::Check { flavor: f } => {
+                [vec!["check".into()], flavor(f), quiet.to_vec()].concat()
+            }
+            PackageCommand::Fmt { check, paths } => {
+                let mut a = vec!["fmt".to_string()];
+                if *check {
+                    a.push("--check".into());
+                }
+                a.extend(paths.iter().cloned());
+                a
+            }
+            PackageCommand::Build { release, flavor: f } => {
+                let mut a = vec!["build".to_string()];
+                if *release {
+                    a.push("--release".into());
+                }
+                [a, flavor(f), quiet.to_vec()].concat()
+            }
+            PackageCommand::Test {
+                filter,
+                flavor: f,
+                coverage,
+            } => {
+                static RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let dir = std::env::temp_dir().join(format!(
+                    "wowlua-mcp-test-{}-{}",
+                    std::process::id(),
+                    RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+                let mut a = vec!["test".to_string()];
+                a.extend(filter.iter().cloned());
+                a.extend(flavor(f));
+                if *coverage {
+                    a.push("--coverage".into());
+                }
+                a.push("--reporter".into());
+                a.push(
+                    if *coverage {
+                        "json,coverage-json"
+                    } else {
+                        "json"
+                    }
+                    .into(),
+                );
+                a.push("--output".into());
+                a.push(dir.to_string_lossy().into_owned());
+                reports = Some(dir);
+                [a, quiet.to_vec()].concat()
+            }
+        };
+        let (ok, text) = self.run_wowlua(&args)?;
+        let mut out = CommandOutput {
+            ok,
+            text,
+            ..CommandOutput::default()
+        };
+        if let Some(dir) = reports {
+            let read = |name: &str| {
+                std::fs::read(dir.join(name))
+                    .ok()
+                    .and_then(|b| serde_json::from_slice(&b).ok())
+            };
+            out.results = read("results.json");
+            out.coverage = read("coverage.json");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        Ok(out)
+    }
+}
+
+impl CliLauncher {
+    /// `wowlua` itself with `args`, in the package: whether it succeeded,
+    /// and what it printed.
+    fn run_wowlua(&self, args: &[String]) -> Result<(bool, String), String> {
         let exe = std::env::current_exe().map_err(|e| format!("wowlua's own path: {e}"))?;
         let mut cmd = std::process::Command::new(exe);
         if let Some(m) = &self.global.manifest {
