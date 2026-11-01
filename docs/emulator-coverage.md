@@ -2450,6 +2450,7 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - Owed from the contributions in 0.13.5 (next beta, about 2026-11-07)
 - Owed from the world profiles (next beta, about 2026-11-07)
 - The other clients' answers (decisions T510, T511)
+- The untyped functions (M11's full API types)
 - Answered on the beta's last day (2026-10-24)
 - Moving and facing (decisions T516, T519)
 - A solid world (decisions T524, T532)
