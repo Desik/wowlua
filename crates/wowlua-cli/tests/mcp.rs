@@ -300,6 +300,24 @@ fn an_agent_checks_formats_and_tests_the_package() {
     assert!(only.starts_with("1 passed, 0 failed"), "{only}");
     let covered = m.ok("test", json!({ "filter": "counts up", "coverage": true }));
     assert!(covered.contains("coverage: lines "), "{covered}");
+
+    // wowlua's docs and the standard library's reference (T551).
+    let listed = m.ok("wowlua_docs", json!({}));
+    assert!(
+        listed.contains("stdlib/events.md — Events and lifecycle"),
+        "{listed}"
+    );
+    let doc = m.ok("wowlua_docs", json!({ "path": "stdlib/events.md" }));
+    assert!(doc.starts_with("# Events and lifecycle"), "{doc}");
+    let (none, failed, _) = m.tool("wowlua_docs", json!({ "path": "nope.md" }));
+    assert!(failed && none.contains("no doc"), "{none}");
+    let modules = m.ok("wowlua_reference", json!({}));
+    assert!(
+        modules.contains("wowlua:events") && modules.contains("wowlua:mock"),
+        "{modules}"
+    );
+    let mock = m.ok("wowlua_reference", json!({ "module": "wowlua:mock" }));
+    assert!(mock.starts_with("-- wowlua:mock: declarations"), "{mock}");
 }
 
 #[test]

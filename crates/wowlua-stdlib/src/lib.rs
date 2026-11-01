@@ -195,6 +195,12 @@ const MODULES: &[(&str, &str, Option<&str>)] = &[
     ("version", include_str!("../std/version.wowlua"), None),
 ];
 
+/// The names of the modules shipped with this compiler version (`events`
+/// for `wowlua:events`).
+pub fn module_names() -> Vec<&'static str> {
+    MODULES.iter().map(|(n, _, _)| *n).collect()
+}
+
 /// A standard-library module by name (`events` for `wowlua:events`).
 ///
 /// `WOWLUA_STDLIB_DIR` points the compiler at a directory of modules

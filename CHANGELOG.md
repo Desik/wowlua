@@ -7,6 +7,7 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 ### New
 
 - **More for AI agents in `wowlua mcp`**: an agent can now check, format, build and test your package (`check`, `fmt`, `build`, and `test` with the failures' messages and lines, and coverage on request), see which frame is at a point (`pick`) and everything about one frame (`inspect`: anchors, scripts, events, the line that made it), list the world's units (`units`), log the game events (`events`), change the screen size (`set_screen`), save the running world as a world profile (`save_world`) and list the breakpoints with their hits (`breakpoints`). A stop at an error, a blocked action or taint now tells its details.
+- An agent can read wowlua's docs and the standard library's reference through `wowlua mcp` (`wowlua_docs`, `wowlua_reference`): the docs and modules of exactly the wowlua it runs, with no web access needed.
 
 ### Fixed
 
