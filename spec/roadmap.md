@@ -647,9 +647,11 @@ Real game data and assets from the user's own client, never distributed
 - Full API types: the type generator types every function, event payload
   and table the game API has. Most are typed now (decisions T288 to T296:
   warcraft.wiki.gg, Blizzard's own Lua, the client's recorded answers);
-  about 180 functions (2026-10-24) are still `(...unknown) -> ...unknown`,
-  with no source that tells their types: a read-only probe of the client
-  can record what the getters among them answer.
+  about 55 functions (2026-11-01) are still `(...unknown) -> ...unknown`,
+  with no source that tells their types: mostly the classic clients' old
+  functions and the character select screen's; a read-only probe of the
+  clients records what the getters among them answer
+  (`tests/ingame/PROBES.md`, "The untyped functions").
 - UI assets and the `wgpu` renderer moved to M12 (T310); left here: text
   measured with the client's fonts, so `GetStringWidth`, wrapping and
   truncation match the client in tests too (T211). 3D models moved to M12
