@@ -2459,6 +2459,7 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - Frame rate and render scale (decisions T538, T539)
 - The camera (decisions T520, T521)
 - The dev tools (0.12.1)
+- The Camelot update (decision T553)
 
 ## In-game regressions
 
