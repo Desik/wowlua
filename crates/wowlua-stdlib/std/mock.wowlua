@@ -1068,6 +1068,13 @@ export function advanceTime(sec: number)
     engine().advanceTime(sec)
 end
 
+--- The realm's time of day (`GetGameTime`, the calendar, the 3D world's
+--- light): the clock jumps to `hour`:`minute` of the same day, its timers
+--- not run. A session starts at 12:00.
+export function setTimeOfDay(hour: number, minute: number?)
+    engine().setTimeOfDay(hour, minute)
+end
+
 --- One frame (`OnUpdate` with `ms` milliseconds, 1000/60 by default).
 export function nextFrame(ms: number?)
     engine().advanceFrames(1, ms)

@@ -131,6 +131,8 @@ pub struct Library {
     /// Each map tile's solids, gathered when last asked for.
     pub(crate) solids: HashMap<(u32, i32, i32), (u64, TileSolids)>,
     pub(crate) solids_asked: u64,
+    /// The build's outdoor light, read on first use (decision T555).
+    lights: Option<Option<std::sync::Arc<crate::light::Lights>>>,
 }
 
 /// A creature the installation knows (decision T531): from the client's
@@ -207,6 +209,14 @@ impl Library {
                 casc.file_by_path(&format!("world/maps/{dir}/{dir}.wdt"))
             }
         }
+    }
+
+    /// The build's outdoor light (decision T555), read on first use; none
+    /// where its tables cannot be read.
+    pub fn lights(&mut self, casc: &Casc) -> Option<std::sync::Arc<crate::light::Lights>> {
+        self.lights
+            .get_or_insert_with(|| crate::light::Lights::read(casc).map(std::sync::Arc::new))
+            .clone()
     }
 
     /// A map's terrain tile at a column and row (0 to 63, from the

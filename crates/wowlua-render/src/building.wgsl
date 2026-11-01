@@ -1,6 +1,7 @@
 // The 3D world's buildings (decision T523): a WMO group's batches, each
 // with its material's texture, placed by the building's matrix; outdoors
-// lit by the sun, indoors by the group's own colors; faded into the fog.
+// lit by the zone's light, indoors by the group's own colors; faded into
+// the fog.
 
 struct Globals {
     view: mat4x4<f32>,
@@ -8,6 +9,8 @@ struct Globals {
     sun: vec4<f32>,
     fog: vec4<f32>,
     eye: vec4<f32>,
+    direct: vec4<f32>,
+    ambient: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -56,8 +59,7 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
     if how.x > 0.5 && t.a < 0.5 {
         discard;
     }
-    let sun = g.sun.w + (1.0 - g.sun.w) * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
-    var light = vec3<f32>(sun);
+    var light = g.ambient.rgb + g.direct.rgb * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
     if how.y > 0.5 {
         light = i.color.rgb * 2.0;
     }

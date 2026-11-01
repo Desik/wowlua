@@ -20,6 +20,7 @@ fn north() -> WorldView {
         render_scale: 1.0,
         units: Vec::new(),
         time: 0.0,
+        day_time: 1440.0,
     }
 }
 

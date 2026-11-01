@@ -180,6 +180,13 @@
         }
       ]
     },
+    "time": {
+      "description": "The realm's time of day, `\"HH:MM\"` (`mock.setTimeOfDay`; 12:00\nwithout it).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "auras": {
       "description": "The character's auras (`mock.player:applyAura`).",
       "anyOf": [

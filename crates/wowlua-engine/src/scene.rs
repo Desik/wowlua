@@ -297,6 +297,9 @@ pub struct WorldView {
     pub units: Vec<WorldUnit>,
     /// The clock (seconds): how far into their animations.
     pub time: f64,
+    /// The realm's time of day in half-minutes (0 to 2880), as the light
+    /// tables key it (decision T555).
+    pub day_time: f64,
 }
 
 /// A unit as the 3D world shows it (decision T526): its model, where it
@@ -399,6 +402,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     };
     let units = world_units(vm, [e.at.0, e.at.1, e.at.2], objects);
     let time = vm.clock.elapsed_ms / 1000.0;
+    let day_time = crate::clock::time_of_day(vm) / 30.0;
     let v = |a: (f64, f64, f64)| [a.0, a.1, a.2];
     Some(WorldView {
         map: map as u32,
@@ -413,6 +417,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         render_scale,
         units,
         time,
+        day_time,
     })
 }
 

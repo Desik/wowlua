@@ -1,16 +1,20 @@
 // The 3D world's terrain (decision T522): each chunk's four texture
-// layers blended by its blend map, lit by the sun and faded into the fog
-// with distance.
+// layers blended by its blend map, lit by the zone's light (its ambient,
+// and its direct light by how the ground faces the sun) and faded into the
+// fog with distance.
 
 struct Globals {
     view: mat4x4<f32>,
     proj: mat4x4<f32>,
-    // The sun's direction (toward it), and how much light the shade keeps.
+    // The sun's direction (toward it).
     sun: vec4<f32>,
     // The fog's color, and where it starts (yards).
     fog: vec4<f32>,
-    // The eye, and how far the world is drawn (yards).
+    // The eye, and where the fog is whole (yards).
     eye: vec4<f32>,
+    // The light's direct and ambient colors (decision T555).
+    direct: vec4<f32>,
+    ambient: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -56,7 +60,7 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
     c = mix(c, textureSample(layer1, tiled, t).rgb, a.r);
     c = mix(c, textureSample(layer2, tiled, t).rgb, a.g);
     c = mix(c, textureSample(layer3, tiled, t).rgb, a.b);
-    let lit = g.sun.w + (1.0 - g.sun.w) * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
+    let lit = g.ambient.rgb + g.direct.rgb * max(dot(normalize(i.normal), g.sun.xyz), 0.0);
     let fog = clamp((i.far - g.fog.w) / max(g.eye.w - g.fog.w, 1.0), 0.0, 1.0);
     return vec4<f32>(mix(c * lit, g.fog.rgb, fog), 1.0);
 }

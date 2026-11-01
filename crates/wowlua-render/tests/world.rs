@@ -181,6 +181,59 @@ mock.advanceFrames(2, 1000 / 60)",
     assert_eq!(at(&mut vm, "4").0, 2.0);
 }
 
+/// The world under the place's light at the realm's time of day (decision
+/// T555): Northshire's abbey at noon and at midnight, its sky and ground
+/// lit differently. `WOWLUA_SHOTS` names a folder to keep the pictures in.
+#[test]
+fn the_world_is_lit_by_the_time_of_day() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut at = |vm: &mut Vm, hour: u32| {
+        run(vm, &format!("mock.setTimeOfDay({hour}, 0)"));
+        assert_eq!(
+            run(vm, "return GetGameTime()"),
+            [hour.to_string(), "0".into()]
+        );
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn")
+    };
+    // (the first draw reads the world)
+    at(&mut vm, 12);
+    let noon = at(&mut vm, 12);
+    let night = at(&mut vm, 0);
+    let dusk = at(&mut vm, 19);
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let dir = std::path::PathBuf::from(dir);
+        for (name, image) in [("noon", &noon), ("midnight", &night), ("dusk", &dusk)] {
+            let png = wowlua_render::encode_png(image).expect("encoded");
+            std::fs::write(dir.join(format!("northshire-{name}.png")), png).expect("written");
+        }
+    }
+    let mean = |i: &wowlua_casc::Rgba| {
+        i.pixels.iter().map(|&p| f64::from(p)).sum::<f64>() / i.pixels.len() as f64
+    };
+    let (day, dark) = (mean(&noon), mean(&night));
+    eprintln!(
+        "mean brightness: noon {day:.1}, midnight {dark:.1}, dusk {:.1}",
+        mean(&dusk)
+    );
+    assert!((day - dark).abs() > 5.0, "{day} {dark}");
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]

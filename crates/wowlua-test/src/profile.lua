@@ -65,6 +65,12 @@ end
 if type(profile.position) == "table" then
     mock.moveTo(profile.position)
 end
+if type(profile.time) == "string" then
+    local hour, minute = profile.time:match("^(%d+):(%d+)$")
+    if hour then
+        mock.setTimeOfDay(tonumber(hour), tonumber(minute))
+    end
+end
 each(profile.auras, function(_, aura)
     player:applyAura(aura)
 end)

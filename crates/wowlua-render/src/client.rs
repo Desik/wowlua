@@ -407,6 +407,13 @@ impl Assets for ClientAssets {
         lib.building(casc, file)
     }
 
+    fn light(&mut self, map: u32, at: [f64; 3], day_time: f64) -> Option<wowlua_casc::light::Sky> {
+        let casc = self.casc.as_ref()?;
+        let lib = library_of(casc);
+        let lights = lib.lock().ok()?.lights(casc)?;
+        lights.at(map, at, day_time, wowlua_casc::light::Kind::Clear)
+    }
+
     fn minimap_tile(&mut self, map: u32, x: i32, y: i32) -> Option<u32> {
         let casc = self.casc.as_ref()?;
         let lib = library_of(casc);

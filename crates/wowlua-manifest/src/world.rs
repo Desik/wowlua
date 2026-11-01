@@ -126,6 +126,9 @@ pub struct WorldProfile {
     pub channels: Option<Channels>,
     /// Where the character is (`mock.moveTo`).
     pub position: Option<Position>,
+    /// The realm's time of day, `"HH:MM"` (`mock.setTimeOfDay`; 12:00
+    /// without it).
+    pub time: Option<String>,
     /// The character's auras (`mock.player:applyAura`).
     pub auras: Option<List<Aura>>,
     /// The units around: creatures and other players (`mock.spawnUnit`).

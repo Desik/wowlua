@@ -701,3 +701,16 @@ pub fn methods() -> Vec<(&'static str, widgets::MethodFn)> {
         ("TimedSignalMap:GetNextSignal", get_next_signal),
     ]
 }
+
+/// Seconds into the realm's day: the clock's local time of day (decision
+/// T555).
+pub fn time_of_day(vm: &Vm) -> f64 {
+    (vm.clock.now + vm.clock.utc_offset as f64).rem_euclid(86_400.0)
+}
+
+/// Sets the realm's time of day, the day kept: the clock jumps (its timers
+/// and `GetTime` do not move; decision T555).
+pub fn set_time_of_day(vm: &mut Vm, seconds: f64) {
+    let now = vm.clock.now;
+    vm.clock.now = now - time_of_day(vm) + seconds.rem_euclid(86_400.0);
+}

@@ -70,6 +70,16 @@ pub trait Assets {
     fn minimap_tile(&mut self, _map: u32, _x: i32, _y: i32) -> Option<u32> {
         None
     }
+    /// The light at a place of a map (north, west, up) at a time of day in
+    /// half-minutes (decision T555); none for a plain sky.
+    fn light(
+        &mut self,
+        _map: u32,
+        _at: [f64; 3],
+        _day_time: f64,
+    ) -> Option<wowlua_casc::light::Sky> {
+        None
+    }
 }
 
 /// An atlas's part of its file.
