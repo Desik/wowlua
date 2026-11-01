@@ -1,13 +1,15 @@
 //! Blizzard's UI code for `test.blizzard-ui` (spec emulator §17.7, decision
 //! T204): the installed client's own when the flavor is installed
-//! (decision T553: read from the installation once per build, into
+//! (decision T553: read from the installation once per build, with its
+//! global strings, into
 //! `$WOWLUA_HOME/cache/blizzard-ui/<flavor>-installed-<version>/`), else
 //! wow-ui-source at the commit the flavor's API declarations were
-//! generated from; with the global strings of the declarations' dump,
+//! generated from, with the global strings of the declarations' dump,
 //! fetched on first use into `$WOWLUA_HOME/cache/blizzard-ui/`.
 //! `WOWLUA_UI_SOURCE` names a folder laid out as `cargo xtask types fetch`
-//! makes it (`<flavor>/Interface`, `strings/<commit>.lua`) to use instead;
-//! `WOWLUA_UI_FROM=upstream` leaves the installation out.
+//! makes it (`<flavor>/Interface`, `<flavor>/GlobalStrings.lua` or
+//! `strings/<commit>.lua`) to use instead; `WOWLUA_UI_FROM=upstream` leaves
+//! the installation out.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -60,36 +62,44 @@ pub fn ui_source_in(dir: &Path, flavor: &str) -> Option<UiSource> {
     if !wowlua_host::exists(&interface) {
         return None;
     }
+    let own = dir.join(flavor).join(INSTALLED_STRINGS);
     Some(UiSource {
         interface,
-        strings: strings_commit
-            .map(|c| dir.join("strings").join(format!("{c}.lua")))
-            .filter(|p| wowlua_host::exists(p)),
+        strings: if wowlua_host::exists(&own) {
+            Some(own)
+        } else {
+            strings_commit
+                .map(|c| dir.join("strings").join(format!("{c}.lua")))
+                .filter(|p| wowlua_host::exists(p))
+        },
     })
 }
+
+/// An installed client's global strings, beside its `Interface` (T553).
+pub const INSTALLED_STRINGS: &str = "GlobalStrings.lua";
 
 /// The flavor's UI code when it is there already: in `WOWLUA_UI_SOURCE`,
 /// read from the installation, or fetched into the cache with its global
 /// strings. Never fetches (wowlua studio's start page shows whether a test
 /// run will have to).
 pub fn cached_ui_source(flavor: &str) -> Option<UiSource> {
+    cached(flavor, true)
+}
+
+fn cached(flavor: &str, installed: bool) -> Option<UiSource> {
     let (commit, strings_commit) = commits(flavor)?;
     if let Some(dir) = std::env::var_os("WOWLUA_UI_SOURCE") {
         return ui_source_in(&PathBuf::from(dir), flavor);
     }
     // (an installed flavor's is the installation's, once read)
     #[cfg(feature = "native")]
-    if let Some((_, dir)) = installed_dir(flavor) {
+    if let Some((_, dir)) = installed.then(|| installed_dir(flavor)).flatten() {
         if !wowlua_host::exists(dir.join(".wowlua-complete")) {
             return None;
         }
-        let strings = strings_commit
-            .as_ref()
-            .and_then(|c| Some(cache_dir()?.join("strings").join(format!("{c}.lua"))))
-            .filter(|p| wowlua_host::exists(p));
         return Some(UiSource {
             interface: dir.join("Interface"),
-            strings,
+            strings: Some(dir.join(INSTALLED_STRINGS)),
         });
     }
     let cache = wowlua_driver::cache_root()?.join("blizzard-ui");
@@ -123,17 +133,38 @@ pub fn forget_ui_source(flavor: &str) -> Result<(), String> {
     let Some(cache) = wowlua_driver::cache_root() else {
         return Ok(());
     };
-    let dir = cache
-        .join("blizzard-ui")
-        .join(format!("{flavor}-{}", &commit[..12]));
-    match std::fs::remove_dir_all(&dir) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("cannot remove `{}`: {e}", dir.display())),
+    let mut dirs = vec![
+        cache
+            .join("blizzard-ui")
+            .join(format!("{flavor}-{}", &commit[..12])),
+    ];
+    // (and the installation's copy: read again)
+    #[cfg(feature = "native")]
+    dirs.extend(installed_dir(flavor).map(|(_, d)| d));
+    for dir in dirs {
+        match std::fs::remove_dir_all(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("cannot remove `{}`: {e}", dir.display())),
+        }
     }
+    Ok(())
 }
 
+/// The flavor's UI code: the installation's where the flavor is installed
+/// (read on first use), else wow-ui-source's, fetched when the cache lacks
+/// it.
 pub fn ui_source(flavor: &str, status: &dyn Fn(&str)) -> Result<UiSource, String> {
+    source(flavor, status, true)
+}
+
+/// wow-ui-source's copy of the flavor's UI code even where the flavor is
+/// installed (what the browser fetches), fetched when the cache lacks it.
+pub fn upstream_ui_source(flavor: &str, status: &dyn Fn(&str)) -> Result<UiSource, String> {
+    source(flavor, status, false)
+}
+
+fn source(flavor: &str, status: &dyn Fn(&str), installed: bool) -> Result<UiSource, String> {
     let (commit, strings_commit) = commits(flavor).ok_or_else(|| {
         format!("the `{flavor}` declarations do not name their wow-ui-source commit")
     })?;
@@ -141,7 +172,7 @@ pub fn ui_source(flavor: &str, status: &dyn Fn(&str)) -> Result<UiSource, String
         return ui_source_in(&PathBuf::from(dir), flavor)
             .ok_or_else(|| format!("no `{flavor}` UI code in WOWLUA_UI_SOURCE"));
     }
-    if let Some(cached) = cached_ui_source(flavor) {
+    if let Some(cached) = cached(flavor, installed) {
         return Ok(cached);
     }
     let cache = wowlua_driver::cache_root()
@@ -149,38 +180,26 @@ pub fn ui_source(flavor: &str, status: &dyn Fn(&str)) -> Result<UiSource, String
         .join("blizzard-ui");
     // The installed client's own code, read once per build (T553).
     #[cfg(feature = "native")]
-    if let Some((casc, dir)) = installed_dir(flavor) {
+    if let Some((casc, dir)) = installed.then(|| installed_dir(flavor)).flatten() {
         status(&format!(
             "Blizzard's UI code for {flavor} from the installation ({})",
             casc.version
         ));
         let names = addon_names(&cache, &commit)?;
-        let table = wowlua_flavors::table();
-        let client = table.clients_of(flavor).next().ok_or("no client")?;
         let part = dir.with_extension("part");
         if wowlua_host::exists(&part) {
             wowlua_host::remove_dir_all(&part).map_err(|e| e.to_string())?;
         }
-        crate::installed::extract(&casc, &names, &client.suffixes, &games(flavor), &part)?;
+        extract_installed(&casc, flavor, &names, &part)?;
         wowlua_host::write(part.join(".wowlua-complete"), &casc.version)
             .map_err(|e| e.to_string())?;
         if wowlua_host::exists(&dir) {
             wowlua_host::remove_dir_all(&dir).map_err(|e| e.to_string())?;
         }
         wowlua_host::rename(&part, &dir).map_err(|e| e.to_string())?;
-        let strings = match strings_commit {
-            Some(c) => {
-                let path = cache.join("strings").join(format!("{c}.lua"));
-                if !wowlua_host::exists(&path) {
-                    fetch_strings(&path, &c)?;
-                }
-                Some(path)
-            }
-            None => None,
-        };
         return Ok(UiSource {
             interface: dir.join("Interface"),
-            strings,
+            strings: Some(dir.join(INSTALLED_STRINGS)),
         });
     }
     let dir = cache.join(format!("{flavor}-{}", &commit[..12]));
@@ -236,54 +255,55 @@ fn fetch_ui(dir: &Path, commit: &str) -> Result<(), String> {
     wowlua_host::write(dir.join(".wowlua-complete"), commit).map_err(|e| e.to_string())
 }
 
-/// What an installed client's TOCs' `[Family]` and `[Game]` may stand for:
-/// its family, its game types and TOC suffixes, as written and capitalized.
-#[cfg(feature = "native")]
-pub(crate) fn games(flavor: &str) -> Vec<String> {
-    let table = wowlua_flavors::table();
-    let mut out: Vec<String> = Vec::new();
-    if let Some(f) = table.flavor(flavor) {
-        out.push(f.family.name().to_owned());
-    }
-    for c in table.clients_of(flavor) {
-        for g in c.game_types.iter().chain(&c.suffixes) {
-            let cap: String = g
-                .chars()
-                .take(1)
-                .flat_map(char::to_uppercase)
-                .chain(g.chars().skip(1))
-                .collect();
-            for v in [g.clone(), cap] {
-                if !out.contains(&v) {
-                    out.push(v);
-                }
-            }
-        }
-    }
-    out
-}
-
 fn cache_dir() -> Option<PathBuf> {
     Some(wowlua_driver::cache_root()?.join("blizzard-ui"))
 }
 
-/// The flavor's client in this machine's WoW installation, and where its
-/// UI code is kept: none when it is not installed, or
-/// `WOWLUA_UI_FROM=upstream`.
+/// The flavor's client in this machine's WoW installation: none when it is
+/// not installed, or `WOWLUA_UI_FROM=upstream` (decision T553).
 #[cfg(feature = "native")]
-fn installed_dir(flavor: &str) -> Option<(wowlua_casc::Casc, PathBuf)> {
+pub fn installed_client(flavor: &str) -> Option<wowlua_casc::Casc> {
     if std::env::var("WOWLUA_UI_FROM").is_ok_and(|v| v == "upstream") {
         return None;
     }
     let root = wowlua_driver::install::find_wow(None).ok()?;
     let table = wowlua_flavors::table();
     let client = table.clients_of(flavor).next()?;
-    let storage = wowlua_casc::FsStorage { root: root.clone() };
+    let storage = wowlua_casc::FsStorage { root };
     let product = client
         .folders
         .iter()
         .find_map(|f| wowlua_casc::Casc::product_of_folder(&storage, f))?;
-    let casc = wowlua_casc::Casc::open(Box::new(storage), &product).ok()?;
+    wowlua_casc::Casc::open(Box::new(storage), &product).ok()
+}
+
+/// Writes the installed client's Blizzard UI code into `out` (its
+/// `Interface/AddOns`), starting from the addons `seeds` names, and its
+/// global strings beside it ([`INSTALLED_STRINGS`]).
+#[cfg(feature = "native")]
+pub fn extract_installed(
+    casc: &wowlua_casc::Casc,
+    flavor: &str,
+    seeds: &[String],
+    out: &Path,
+) -> Result<crate::installed::Extracted, String> {
+    let table = wowlua_flavors::table();
+    let client = table.clients_of(flavor).next().ok_or("no client")?;
+    let got = crate::installed::extract(casc, seeds, &client.suffixes, flavor, out)?;
+    let strings = wowlua_casc::globalstrings::read(casc)
+        .ok_or("the installation's global strings cannot be read")?;
+    wowlua_host::write(
+        out.join(INSTALLED_STRINGS),
+        wowlua_casc::globalstrings::lua(&strings),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(got)
+}
+
+/// The flavor's installed client, and where its UI code is kept.
+#[cfg(feature = "native")]
+fn installed_dir(flavor: &str) -> Option<(wowlua_casc::Casc, PathBuf)> {
+    let casc = installed_client(flavor)?;
     let dir = cache_dir()?.join(format!("{flavor}-installed-{}", casc.version));
     Some((casc, dir))
 }

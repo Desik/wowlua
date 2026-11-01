@@ -1,6 +1,7 @@
 //! Blizzard's UI code read from this machine's WoW installation (decision
-//! T553), against the upstream copy of the flavor's code: skipped where
-//! either is missing.
+//! T553), against the upstream copy of the flavor's code (fetched by a
+//! test run with `WOWLUA_UI_FROM=upstream`): skipped where either is
+//! missing.
 #![allow(clippy::disallowed_methods)] // (this machine's installation and the cache)
 
 use std::collections::BTreeSet;
@@ -21,7 +22,15 @@ fn each_installed_client_s_ui_code_is_read() {
     };
     let table = wowlua_flavors::table();
     for flavor in ["camelot", "vanilla", "tbc", "mists"] {
-        let Some(upstream) = wowlua_test::cached_ui_source(flavor) else {
+        let Some(upstream) = wowlua_test::ui_commits(flavor)
+            .and_then(|(c, _)| {
+                Some(
+                    wowlua_driver::cache_root()?.join(format!("blizzard-ui/{flavor}-{}", &c[..12])),
+                )
+            })
+            .filter(|d| d.join(".wowlua-complete").exists())
+            .map(|d| d.join("Interface"))
+        else {
             eprintln!("{flavor}: no upstream copy cached: skipped");
             continue;
         };
@@ -38,36 +47,25 @@ fn each_installed_client_s_ui_code_is_read() {
             continue;
         };
         let casc = wowlua_casc::Casc::open(Box::new(storage), &product).expect("the client");
-        let seeds: Vec<String> = std::fs::read_dir(upstream.interface.join("AddOns"))
+        let seeds: Vec<String> = std::fs::read_dir(upstream.join("AddOns"))
             .expect("the upstream addons")
             .flatten()
             .filter_map(|e| e.file_name().to_str().map(str::to_owned))
             .collect();
-        let mut games = vec![
-            table
-                .flavor(flavor)
-                .map_or("Mainline", |f| f.family.name())
-                .to_owned(),
-        ];
-        for g in client.game_types.iter().chain(&client.suffixes) {
-            let mut cap = g.clone();
-            cap[..1].make_ascii_uppercase();
-            games.extend([g.clone(), cap]);
-        }
         let out = tempfile::tempdir().unwrap();
         let got =
-            wowlua_test::installed::extract(&casc, &seeds, &client.suffixes, &games, out.path())
+            wowlua_test::installed::extract(&casc, &seeds, &client.suffixes, flavor, out.path())
                 .expect("extracted");
         let new: BTreeSet<&String> = got.addons.iter().filter(|a| !seeds.contains(a)).collect();
         // (the upstream copy's addons this client loads: a TOC of its)
         let loaded: Vec<&String> = seeds
             .iter()
             .filter(|n| {
-                let dir = upstream.interface.join("AddOns").join(n);
+                let dir = upstream.join("AddOns").join(n);
                 client
                     .suffixes
                     .iter()
-                    .map(|s| dir.join(format!("{n}_{s}.toc")))
+                    .map(|s| dir.join(format!("{n}{s}.toc")))
                     .chain([dir.join(format!("{n}.toc"))])
                     .any(|p| p.exists())
             })

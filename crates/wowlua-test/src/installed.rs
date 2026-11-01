@@ -3,8 +3,9 @@
 //! names its interface files by hashes only, so the code is found as the
 //! client finds it: from Blizzard's addons' names, each addon's TOC (the
 //! client's suffixes in order, then the plain name), the files it lists,
-//! the files their XML includes and the addons they load or depend on. The
-//! files land in a folder laid out as wow-ui-source's (`Interface/AddOns`).
+//! its key bindings, the files their XML includes and the addons they load
+//! or depend on. The files land in a folder laid out as wow-ui-source's
+//! (`Interface/AddOns`).
 
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
@@ -22,15 +23,14 @@ pub struct Extracted {
 
 /// Writes the build's Blizzard UI code into `out` (its `Interface/AddOns`),
 /// starting from `seeds` (addon names); `suffixes` are the client's TOC
-/// suffixes in lookup order; `games` what a TOC's `[Family]` and `[Game]`
-/// may stand for (its family, its game types: `Mainline`, `Camelot`), each
-/// tried.
+/// suffixes in lookup order (`_Vanilla`), `flavor` what a TOC's `[Game]` and
+/// `[Family]` stand for.
 #[allow(clippy::disallowed_methods)] // (a cache folder of the computer's)
 pub fn extract(
     casc: &Casc,
     seeds: &[String],
     suffixes: &[String],
-    games: &[String],
+    flavor: &str,
     out: &Path,
 ) -> Result<Extracted, String> {
     let script = regex::Regex::new(r#"(?i)<(?:Script|Include)\b[^>]*?\bfile\s*=\s*"([^"]+)""#)
@@ -58,7 +58,7 @@ pub fn extract(
             let dir = format!("Interface/AddOns/{name}");
             let toc = suffixes
                 .iter()
-                .map(|s| format!("{dir}/{name}_{s}.toc"))
+                .map(|s| format!("{dir}/{name}{s}.toc"))
                 .chain([format!("{dir}/{name}.toc")])
                 .find_map(|p| casc.file_by_path(&p).map(|b| (p, b)));
             let Some((path, bytes)) = toc else {
@@ -90,17 +90,16 @@ pub fn extract(
                 }
             }
             for f in &parsed.files {
-                let rel = f.path.replace("[TextLocale]", "enUS");
-                if rel.contains("[Family]") || rel.contains("[Game]") {
-                    // (each value tried: the files that are there are kept)
-                    for g in games {
-                        let one = rel.replace("[Family]", g).replace("[Game]", g);
-                        files.push_back(normalize(&format!("{dir}/{one}")));
-                    }
-                } else {
-                    files.push_back(normalize(&format!("{dir}/{rel}")));
-                }
+                let rel = wowlua_driver::build::substitute(&f.path, flavor, "enUS");
+                files.push_back(normalize(&format!("{dir}/{rel}")));
             }
+            // (the client loads an addon's key bindings without a TOC line)
+            files.extend(
+                suffixes
+                    .iter()
+                    .map(|s| format!("{dir}/Bindings{s}.xml"))
+                    .chain([format!("{dir}/Bindings.xml")]),
+            );
             continue;
         }
         let Some(path) = files.pop_front() else {

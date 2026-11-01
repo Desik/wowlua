@@ -25,8 +25,11 @@ mod snapshots;
 pub use snapshots::Summary as SnapshotSummary;
 
 pub use blizzard::{
-    UiSource, cached_ui_source, commits as ui_commits, forget_ui_source, ui_source, ui_source_in,
+    INSTALLED_STRINGS, UiSource, cached_ui_source, commits as ui_commits, forget_ui_source,
+    ui_source, ui_source_in, upstream_ui_source,
 };
+#[cfg(feature = "native")]
+pub use blizzard::{extract_installed, installed_client};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

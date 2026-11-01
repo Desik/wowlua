@@ -1063,3 +1063,33 @@ fn the_props_are_solid() {
     eprintln!("a human male's body: {human:?}");
     assert!(human.is_some_and(|r| (r - 0.306).abs() < 0.01), "{human:?}");
 }
+
+/// Each product's global strings read from its `GlobalStrings` table
+/// (decision T553): `OKAY` among the strings set in the game.
+#[test]
+fn reads_the_global_strings() {
+    let Some(root) = install() else {
+        eprintln!("no WoW installation: skipped");
+        return;
+    };
+    let storage = FsStorage { root: root.clone() };
+    for (product, version) in Casc::products(&storage) {
+        let casc = Casc::open(Box::new(FsStorage { root: root.clone() }), &product).expect("opens");
+        let strings = wowlua_casc::globalstrings::read(&casc).expect("GlobalStrings");
+        let in_game = strings
+            .iter()
+            .filter(|(_, _, f)| f & wowlua_casc::globalstrings::IN_GAME != 0)
+            .count();
+        eprintln!(
+            "{product} {version}: {} strings, {in_game} in the game",
+            strings.len()
+        );
+        let okay = strings.iter().find(|(n, _, _)| n == "OKAY").expect("OKAY");
+        assert_eq!(okay.1, "Okay", "{product}");
+        assert!(
+            okay.2 & wowlua_casc::globalstrings::IN_GAME != 0,
+            "{product}"
+        );
+        assert!(in_game > 10_000, "{product}: {in_game}");
+    }
+}
