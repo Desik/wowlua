@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{Value as Json, json};
 
-use crate::dap::Launcher;
+use crate::dap::{CommandOutput, Launcher, PackageCommand};
 use crate::protocol::*;
 use crate::session::{ChannelLink, ClockMode, Options, Outgoing};
 
@@ -444,11 +444,11 @@ fn detail_text(d: &StopDetail) -> String {
 }
 
 /// A package command's answer: what it printed, an error when it failed.
-fn command_answer(r: Result<(bool, String), String>, done: &str) -> Json {
+fn command_answer(r: Result<CommandOutput, String>, done: &str) -> Json {
     match r {
-        Ok((true, out)) if out.trim().is_empty() => text(done),
-        Ok((true, out)) => text(out.trim_end()),
-        Ok((false, out)) => error(out.trim_end()),
+        Ok(o) if o.ok && o.text.trim().is_empty() => text(done),
+        Ok(o) if o.ok => text(o.text.trim_end()),
+        Ok(o) => error(o.text.trim_end()),
         Err(e) => error(e),
     }
 }
@@ -1135,85 +1135,63 @@ impl Server {
                 ),
                 _ => error("set_screen needs width and height"),
             },
-            "check" => {
-                let mut args = vec!["check".to_string()];
-                args.extend(flavor_args(a));
-                args.extend(quiet_args());
-                command_answer(self.launcher.command(&args), "no problems")
-            }
-            "fmt" => {
-                let mut args = vec!["fmt".to_string()];
-                if a.get("check").and_then(Json::as_bool) == Some(true) {
-                    args.push("--check".into());
-                }
-                args.extend(
-                    a.get("paths")
+            "check" => command_answer(
+                self.launcher.command(&PackageCommand::Check {
+                    flavor: str_arg(a, "flavor"),
+                }),
+                "no problems",
+            ),
+            "fmt" => command_answer(
+                self.launcher.command(&PackageCommand::Fmt {
+                    check: a.get("check").and_then(Json::as_bool) == Some(true),
+                    paths: a
+                        .get("paths")
                         .and_then(Json::as_array)
                         .into_iter()
                         .flatten()
-                        .filter_map(|p| p.as_str().map(str::to_string)),
-                );
-                command_answer(self.launcher.command(&args), "formatted")
-            }
-            "build" => {
-                let mut args = vec!["build".to_string()];
-                if a.get("release").and_then(Json::as_bool) == Some(true) {
-                    args.push("--release".into());
-                }
-                args.extend(flavor_args(a));
-                args.extend(quiet_args());
-                command_answer(self.launcher.command(&args), "built")
-            }
+                        .filter_map(|p| p.as_str().map(str::to_string))
+                        .collect(),
+                }),
+                "formatted",
+            ),
+            "build" => command_answer(
+                self.launcher.command(&PackageCommand::Build {
+                    release: a.get("release").and_then(Json::as_bool) == Some(true),
+                    flavor: str_arg(a, "flavor"),
+                }),
+                "built",
+            ),
             "test" => self.test(a),
             other => error(format!("no tool {other}")),
         }
     }
 
-    /// `test`: the package's tests with the JSON reports in a folder of
-    /// their own, summed up.
+    /// `test`: the package's tests, summed up from their results.
     fn test(&mut self, a: &Json) -> Json {
-        static RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "wowlua-mcp-test-{}-{}",
-            std::process::id(),
-            RUN.fetch_add(1, Ordering::Relaxed)
-        ));
-        let coverage = a.get("coverage").and_then(Json::as_bool) == Some(true);
-        let mut args = vec!["test".to_string()];
-        args.extend(str_arg(a, "filter"));
-        args.extend(flavor_args(a));
-        if coverage {
-            args.push("--coverage".into());
-        }
-        args.push("--reporter".into());
-        args.push(
-            if coverage {
-                "json,coverage-json"
-            } else {
-                "json"
-            }
-            .into(),
-        );
-        args.push("--output".into());
-        args.push(dir.to_string_lossy().into_owned());
-        args.extend(quiet_args());
-        let ran = self.launcher.command(&args);
-        let read = |name: &str| {
-            std::fs::read(dir.join(name))
-                .ok()
-                .and_then(|b| serde_json::from_slice::<Json>(&b).ok())
-        };
-        let (results, cov) = (read("results.json"), read("coverage.json"));
-        let _ = std::fs::remove_dir_all(&dir);
-        match (ran, results) {
-            (Err(e), _) => error(e),
-            // no report: the build failed, or no test ran
-            (Ok((ok, out)), None) => {
+        let ran = self.launcher.command(&PackageCommand::Test {
+            filter: str_arg(a, "filter"),
+            flavor: str_arg(a, "flavor"),
+            coverage: a.get("coverage").and_then(Json::as_bool) == Some(true),
+        });
+        match ran {
+            Err(e) => error(e),
+            // no results: the build failed, or no test ran
+            Ok(CommandOutput {
+                ok,
+                text: out,
+                results: None,
+                ..
+            }) => {
                 let out = out.trim_end().to_string();
                 if ok { text(out) } else { error(out) }
             }
-            (Ok((ok, _)), Some(r)) => {
-                let summary = test_summary(&r, cov.as_ref());
+            Ok(CommandOutput {
+                ok,
+                results: Some(r),
+                coverage,
+                ..
+            }) => {
+                let summary = test_summary(&r, coverage.as_ref());
                 if ok { text(summary) } else { error(summary) }
             }
         }
@@ -1276,20 +1254,6 @@ impl Server {
             let _ = s.request(Request::Terminate);
         }
     }
-}
-
-/// A command's `--flavor`, from the tool's `flavor`.
-fn flavor_args(a: &Json) -> Vec<String> {
-    str_arg(a, "flavor")
-        .map(|f| vec!["--flavor".into(), f])
-        .unwrap_or_default()
-}
-
-/// A command's output for an agent: one line a problem, no colours.
-fn quiet_args() -> Vec<String> {
-    ["--message-format", "short", "--color", "never"]
-        .map(String::from)
-        .to_vec()
 }
 
 fn variable_line(v: &Variable) -> String {

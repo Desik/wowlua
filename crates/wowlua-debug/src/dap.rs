@@ -27,14 +27,48 @@ pub trait Launcher: Send + Sync + 'static {
         opts: &Options,
         session: &mut dyn FnMut(&wowlua_test::Suite, Option<crate::controller::Screenshotter>),
     ) -> Result<(), String>;
-    /// Runs a wowlua command in the package (`check`, `fmt`, `build`,
-    /// `test` with its arguments) for the MCP tools that are not a
-    /// session's (decision T549): whether it succeeded, and what it
-    /// printed. A host that runs none answers an error.
-    fn command(&self, args: &[String]) -> Result<(bool, String), String> {
-        let _ = args;
-        Err("this host runs no wowlua commands".into())
+    /// Runs a package command for the MCP tools that are not a session's
+    /// (decisions T549, T550): `wowlua` itself for the CLI, the wowlua a
+    /// host has built in for wowlua studio. A host that runs none answers
+    /// an error.
+    fn command(&self, command: &PackageCommand) -> Result<CommandOutput, String> {
+        let _ = command;
+        Err("this host runs no package commands".into())
     }
+}
+
+/// A package command an MCP tool runs through its host (decision T550).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PackageCommand {
+    /// `wowlua check`.
+    Check { flavor: Option<String> },
+    /// `wowlua fmt`; `check`: only tell which files would change.
+    Fmt { check: bool, paths: Vec<String> },
+    /// `wowlua build`.
+    Build {
+        release: bool,
+        flavor: Option<String>,
+    },
+    /// `wowlua test`: the tests whose names contain `filter`.
+    Test {
+        filter: Option<String>,
+        flavor: Option<String>,
+        coverage: bool,
+    },
+}
+
+/// What a package command answered.
+#[derive(Clone, Debug, Default)]
+pub struct CommandOutput {
+    /// It succeeded: no problem, every test passed.
+    pub ok: bool,
+    /// What it printed, one line a problem.
+    pub text: String,
+    /// A test run's results, as the `json` reporter writes them (none: no
+    /// test ran, the build failed).
+    pub results: Option<Json>,
+    /// Its coverage, as the `coverage-json` reporter writes it.
+    pub coverage: Option<Json>,
 }
 
 /// Reads one DAP message (`Content-Length` framed JSON).
