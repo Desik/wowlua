@@ -1,9 +1,12 @@
 //! The Model Context Protocol (spec debugger §18.12.2, decision T314):
 //! `wowlua mcp` serves tools for AI agents on stdio: sessions of a test
 //! file or the addon (manually clocked unless asked), screenshots as
-//! images, the frame tree, input, time, evaluation, breakpoints, stepping
-//! and profiles. A tool that runs code waits until the session stops or
-//! settles, and answers with its state and what it printed.
+//! images, the frame tree and what a frame or a point is, the world's
+//! units and the events told, input, time, evaluation, breakpoints,
+//! stepping and profiles; and the package's commands: check, fmt, build
+//! and its tests with coverage (decision T549). A tool that runs code waits
+//! until the session stops or settles, and answers with its state and what
+//! it printed.
 
 use std::io::{BufRead, Write};
 use std::sync::Arc;
@@ -63,11 +66,17 @@ impl Session {
 
     fn note(&mut self, e: &Event) {
         match e {
-            Event::Stopped { reason, text, .. } => {
+            Event::Stopped {
+                reason,
+                text,
+                detail,
+                ..
+            } => {
                 self.state = format!(
-                    "stopped ({}{})",
+                    "stopped ({}{}){}",
                     reason.dap(),
-                    text.as_ref().map(|t| format!(": {t}")).unwrap_or_default()
+                    text.as_ref().map(|t| format!(": {t}")).unwrap_or_default(),
+                    detail.as_ref().map(detail_text).unwrap_or_default()
                 );
             }
             Event::Continued => self.state = "running".into(),
@@ -341,7 +350,175 @@ fn tools() -> Json {
             json!({}),
             &[]
         ),
+        t(
+            "breakpoints",
+            "Every breakpoint with its state and how often it was hit this session.",
+            json!({}),
+            &[]
+        ),
+        t(
+            "inspect",
+            "One frame's or region's details by its id (from frame_tree, find_frames or pick): strata and level, rectangle, alpha and scale, anchors, scripts and hooks with where their functions are, registered events, regions, children, and the Lua line that made it.",
+            json!({ "id": { "type": "integer" } }),
+            &["id"]
+        ),
+        t(
+            "pick",
+            "What draws topmost at a point of the screen (pixels, as screenshots show them): the frame, and the region when one draws there.",
+            json!({ "x": point, "y": point }),
+            &["x", "y"]
+        ),
+        t(
+            "units",
+            "The world's units: index, GUID, tokens, name, level, class, reaction, health, distance, position, facing, whether targeted and whether the player sees them.",
+            json!({}),
+            &[]
+        ),
+        t(
+            "events",
+            "The game events told since the last read, with their arguments, the frames they reached and their handlers' time. log: true starts the log (from empty), false stops it.",
+            json!({ "log": { "type": "boolean" } }),
+            &[]
+        ),
+        t(
+            "save_world",
+            "The running world as a world profile's JSON (the character, its money and place, the other units with the target, focus and group, the CVars changed), to save as tests/profiles/<name>.json.",
+            json!({}),
+            &[]
+        ),
+        t(
+            "set_screen",
+            "The game's window size and UI scale, as the Graphics settings change them.",
+            json!({ "width": { "type": "number" }, "height": { "type": "number" }, "uiScale": { "type": "number", "description": "Use UI Scale with this scale; none: off" } }),
+            &["width", "height"]
+        ),
+        t(
+            "check",
+            "Checks the package (wowlua check): its problems, one a line, with file, line and code.",
+            json!({ "flavor": { "type": "string" } }),
+            &[]
+        ),
+        t(
+            "fmt",
+            "Formats the package's sources (wowlua fmt), or with check only tells which would change.",
+            json!({ "check": { "type": "boolean" }, "paths": { "type": "array", "items": { "type": "string" } } }),
+            &[]
+        ),
+        t(
+            "build",
+            "Builds the addon (wowlua build) into dist/: its problems, or where it went.",
+            json!({ "release": { "type": "boolean" }, "flavor": { "type": "string" } }),
+            &[]
+        ),
+        t(
+            "test",
+            "Runs the package's tests (wowlua test): how many passed, each failure with its message and place; with coverage the totals and the files with the most lines not run.",
+            json!({
+                "filter": { "type": "string", "description": "Only the test files and tests whose names contain this" },
+                "flavor": { "type": "string" },
+                "coverage": { "type": "boolean" }
+            }),
+            &[]
+        ),
     ])
+}
+
+/// An exception's details at a stop, for its state (decision T549).
+fn detail_text(d: &StopDetail) -> String {
+    match d {
+        StopDetail::Error {
+            message,
+            stack,
+            caught,
+        } => format!(
+            "\nerror{}: {message}\n{stack}",
+            if *caught { " (caught)" } else { "" }
+        ),
+        StopDetail::Blocked {
+            addon,
+            action,
+            report,
+        } => format!("\n{addon} was refused {action}\n{report}"),
+        StopDetail::Taint { by, report } => format!("\ntainted by {by}\n{report}"),
+    }
+}
+
+/// A package command's answer: what it printed, an error when it failed.
+fn command_answer(r: Result<(bool, String), String>, done: &str) -> Json {
+    match r {
+        Ok((true, out)) if out.trim().is_empty() => text(done),
+        Ok((true, out)) => text(out.trim_end()),
+        Ok((false, out)) => error(out.trim_end()),
+        Err(e) => error(e),
+    }
+}
+
+/// `test`'s answer from the JSON reports: the counts, each failure, and
+/// with coverage its totals and the files with the most lines not run.
+fn test_summary(results: &Json, coverage: Option<&Json>) -> String {
+    let (mut passed, mut failed, mut skipped) = (0, 0, 0);
+    let mut lines = Vec::new();
+    for f in results["files"].as_array().into_iter().flatten() {
+        let file = f["file"].as_str().unwrap_or("?");
+        if let Some(e) = f["error"].as_str() {
+            failed += 1;
+            lines.push(format!("{file}: {e}"));
+        }
+        for t in f["tests"].as_array().into_iter().flatten() {
+            match t["status"].as_str() {
+                Some("passed") => passed += 1,
+                Some("skipped") => skipped += 1,
+                _ => {
+                    failed += 1;
+                    let at = t["location"].as_str().unwrap_or(file);
+                    lines.push(format!(
+                        "failed: {} ({at})\n  {}",
+                        t["name"].as_str().unwrap_or("?"),
+                        t["message"].as_str().unwrap_or("").replace('\n', "\n  ")
+                    ));
+                }
+            }
+        }
+    }
+    let mut out = format!("{passed} passed, {failed} failed, {skipped} skipped");
+    for l in lines {
+        out.push('\n');
+        out.push_str(&l);
+    }
+    if let Some(c) = coverage {
+        let pct = |t: &Json, k: &str| {
+            format!(
+                "{k} {}% ({}/{})",
+                t[k]["percent"], t[k]["covered"], t[k]["total"]
+            )
+        };
+        let t = &c["totals"];
+        out.push_str(&format!(
+            "\ncoverage: {}, {}, {}",
+            pct(t, "lines"),
+            pct(t, "branches"),
+            pct(t, "functions")
+        ));
+        let mut files: Vec<(String, u64, u64)> = c["files"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(p, f)| {
+                let l = &f["totals"]["lines"];
+                let (c, n) = (
+                    l["covered"].as_u64().unwrap_or(0),
+                    l["total"].as_u64().unwrap_or(0),
+                );
+                (p.clone(), n - c.min(n), n)
+            })
+            .filter(|(_, missed, _)| *missed > 0)
+            .collect();
+        files.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        for (p, missed, n) in files.iter().take(15) {
+            out.push_str(&format!("\n  {p}: {missed} of {n} lines not run"));
+        }
+    }
+    out
 }
 
 impl Server {
@@ -895,7 +1072,150 @@ impl Server {
                     out.join("\n")
                 })
             }
+            "breakpoints" => {
+                let s = match self.session() {
+                    Ok(s) => s,
+                    Err(e) => return e,
+                };
+                match s.request(Request::Breakpoints) {
+                    Ok(Response::Breakpoints { breakpoints }) if breakpoints.is_empty() => {
+                        text("no breakpoints")
+                    }
+                    Ok(Response::Breakpoints { breakpoints }) => text(
+                        breakpoints
+                            .iter()
+                            .map(|b| {
+                                let what = match (&b.source, b.line) {
+                                    (Some(s), Some(l)) => format!("{s}:{l}"),
+                                    (Some(s), None) => s.clone(),
+                                    _ => format!("function breakpoint {}", b.id),
+                                };
+                                let state = if b.verified {
+                                    "set".to_string()
+                                } else {
+                                    b.message.clone().unwrap_or_else(|| "not set".into())
+                                };
+                                format!("{what}: {state}, hit {} times", b.hits)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    ),
+                    Ok(_) => text("no breakpoints"),
+                    Err(e) => error(e),
+                }
+            }
+            "inspect" => match a.get("id").and_then(Json::as_u64) {
+                Some(id) => self.simple(Request::Inspect { frame: id as usize }, false),
+                None => error("inspect needs an id (from frame_tree, find_frames or pick)"),
+            },
+            "pick" => match (
+                a.get("x").and_then(Json::as_f64),
+                a.get("y").and_then(Json::as_f64),
+            ) {
+                (Some(x), Some(y)) => self.simple(Request::Pick { x, y }, false),
+                _ => error("pick needs x and y"),
+            },
+            "units" => self.simple(Request::Units, false),
+            "events" => match a.get("log").and_then(Json::as_bool) {
+                Some(on) => self.simple(Request::LogEvents { on }, false),
+                None => self.simple(Request::Events, false),
+            },
+            "save_world" => self.simple(Request::SaveWorld, false),
+            "set_screen" => match (
+                a.get("width").and_then(Json::as_f64),
+                a.get("height").and_then(Json::as_f64),
+            ) {
+                (Some(width), Some(height)) => self.simple(
+                    Request::SetScreen {
+                        width,
+                        height,
+                        ui_scale: a.get("uiScale").and_then(Json::as_f64),
+                    },
+                    true,
+                ),
+                _ => error("set_screen needs width and height"),
+            },
+            "check" => {
+                let mut args = vec!["check".to_string()];
+                args.extend(flavor_args(a));
+                args.extend(quiet_args());
+                command_answer(self.launcher.command(&args), "no problems")
+            }
+            "fmt" => {
+                let mut args = vec!["fmt".to_string()];
+                if a.get("check").and_then(Json::as_bool) == Some(true) {
+                    args.push("--check".into());
+                }
+                args.extend(
+                    a.get("paths")
+                        .and_then(Json::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|p| p.as_str().map(str::to_string)),
+                );
+                command_answer(self.launcher.command(&args), "formatted")
+            }
+            "build" => {
+                let mut args = vec!["build".to_string()];
+                if a.get("release").and_then(Json::as_bool) == Some(true) {
+                    args.push("--release".into());
+                }
+                args.extend(flavor_args(a));
+                args.extend(quiet_args());
+                command_answer(self.launcher.command(&args), "built")
+            }
+            "test" => self.test(a),
             other => error(format!("no tool {other}")),
+        }
+    }
+
+    /// `test`: the package's tests with the JSON reports in a folder of
+    /// their own, summed up.
+    fn test(&mut self, a: &Json) -> Json {
+        static RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "wowlua-mcp-test-{}-{}",
+            std::process::id(),
+            RUN.fetch_add(1, Ordering::Relaxed)
+        ));
+        let coverage = a.get("coverage").and_then(Json::as_bool) == Some(true);
+        let mut args = vec!["test".to_string()];
+        args.extend(str_arg(a, "filter"));
+        args.extend(flavor_args(a));
+        if coverage {
+            args.push("--coverage".into());
+        }
+        args.push("--reporter".into());
+        args.push(
+            if coverage {
+                "json,coverage-json"
+            } else {
+                "json"
+            }
+            .into(),
+        );
+        args.push("--output".into());
+        args.push(dir.to_string_lossy().into_owned());
+        args.extend(quiet_args());
+        let ran = self.launcher.command(&args);
+        let read = |name: &str| {
+            std::fs::read(dir.join(name))
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Json>(&b).ok())
+        };
+        let (results, cov) = (read("results.json"), read("coverage.json"));
+        let _ = std::fs::remove_dir_all(&dir);
+        match (ran, results) {
+            (Err(e), _) => error(e),
+            // no report: the build failed, or no test ran
+            (Ok((ok, out)), None) => {
+                let out = out.trim_end().to_string();
+                if ok { text(out) } else { error(out) }
+            }
+            (Ok((ok, _)), Some(r)) => {
+                let summary = test_summary(&r, cov.as_ref());
+                if ok { text(summary) } else { error(summary) }
+            }
         }
     }
 
@@ -909,7 +1229,7 @@ impl Server {
                 "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2025-06-18")),
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "wowlua", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Drives the package's addon in wowlua's emulated WoW client. start_session first (the addon, or a test file); screenshot shows the UI; frame_tree and find_frames give frames and their pixel rectangles; click/type_text/press_key/advance act; breakpoints, step, stack, variables and eval debug; profile_start/profile_stop measure.",
+                "instructions": "Drives the package's addon in wowlua's emulated WoW client. start_session first (the addon, or a test file); screenshot shows the UI; frame_tree and find_frames give frames and their pixel rectangles; click/type_text/press_key/advance act; pick and inspect tell what a point or frame is; units and events show the world; breakpoints, step, stack, variables and eval debug; profile_start/profile_stop measure. check, fmt, build and test work on the package without a session.",
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": tools() }),
@@ -956,6 +1276,20 @@ impl Server {
             let _ = s.request(Request::Terminate);
         }
     }
+}
+
+/// A command's `--flavor`, from the tool's `flavor`.
+fn flavor_args(a: &Json) -> Vec<String> {
+    str_arg(a, "flavor")
+        .map(|f| vec!["--flavor".into(), f])
+        .unwrap_or_default()
+}
+
+/// A command's output for an agent: one line a problem, no colours.
+fn quiet_args() -> Vec<String> {
+    ["--message-format", "short", "--color", "never"]
+        .map(String::from)
+        .to_vec()
 }
 
 fn variable_line(v: &Variable) -> String {

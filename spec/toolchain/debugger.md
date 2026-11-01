@@ -759,8 +759,21 @@ tools: `start_session` (a test file or the addon, flavor, profile, screen),
 `find_frames` (by name, type or text), `click` (a frame, or a point in the
 screenshot's pixels), `hover`, `drag`, `type_text`, `press_key`, `slash` (a
 slash command), `chat` (a message the player sends, decision T514), `advance`, `fire_event`, `world` (as `wowlua/world`), `eval`, `set_breakpoints`, `continue`,
-`step`, `stack`, `variables`, `profile_start`, `profile_stop`, `output`
-(what the session printed and the errors it raised). Sessions are `manual`
+`step`, `pause`, `stack`, `variables`, `set_function_breakpoints`,
+`breakpoints` (each with its state and hits), `profile_start`,
+`profile_stop`, `output` (what the session printed and the errors it
+raised); what a frame or a point is and the world, as wowlua studio's
+requests (§18.12.3): `inspect` (by a frame tree `id`), `pick`, `units`,
+`events` (`log` starts or stops the log, else the events since the last
+read), `save_world`, `set_screen`; and the package's commands, run by the
+host in the package without a session (`Launcher::command`, `wowlua`
+itself for `wowlua mcp`): `check` and `build` (one line a problem,
+`--message-format short`), `fmt` (`check`: only the files it would
+change), `test` (an optional filter and flavor, `coverage`: from the `json`
+and `coverage-json` reports, the counts, each failure with its message and
+place, the coverage totals and the files with the most lines not run;
+decision T549). A stop at an exception tells its details (`detail`, §18.12.3:
+an error's message and stack, a blocked action, a taint). Sessions are `manual`
 clocked unless asked otherwise. A tool that runs code (`continue`, `step`,
 `click`, `advance`, …) answers once the session stops or settles, with its
 state (where it stopped) and what it printed meanwhile. Profiles count game
