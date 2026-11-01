@@ -851,6 +851,55 @@ now; "Recorded:" what the clients printed.
    Recorded: `false` on the classic clients; on Retail the function does
    not exist.
 
+## The untyped functions (M11's full API types)
+
+About 55 functions (2026-11-01) are still `(...unknown) -> ...unknown`:
+no source types them (warcraft.wiki.gg has no pages for them, Ketho's
+annotations no types, Blizzard's Lua calls only a few). These steps record
+what the getters among them answer, so the type generator can type them.
+Only getters: the functions that act (`DoCraft`, `StartAuction`,
+`GMSubmitSuggestion`, the combat log's filters, …) are not called. Run each
+step on the clients named, with a character alone, no target and out of
+combat, and note what it prints. Every step starts with the helper `P`,
+which calls a function safely and prints each answer with its type
+(`number=0.05`); `false` after the name is the error the call raised.
+
+1. **Arena teams and the auction house** (Classic Era, TBC Anniversary,
+   MoP Classic):
+   1. `/run P=function(n,...) local function f(ok,...) local t={} for i=1,select("#",...) do local v=select(i,...) t[i]=type(v).."="..tostring(v) end print(n,ok,table.concat(t," ")) end f(pcall(_G[n],...)) end`
+   2. `/run P("GetAuctionHouseDepositRate") P("GetArenaTeamRosterShowOffline") P("GetPreviousArenaSeasonUsesTeams") P("IsInArenaTeam") P("IsRatedBattleground")`
+
+   wowlua: untyped. Recorded: (to do)
+2. **Spells by ID** (Classic Era, TBC Anniversary, MoP Classic; 6603 is
+   Auto Attack):
+   1. `/run P=function(n,...) local function f(ok,...) local t={} for i=1,select("#",...) do local v=select(i,...) t[i]=type(v).."="..tostring(v) end print(n,ok,table.concat(t," ")) end f(pcall(_G[n],...)) end`
+   2. `/run P("GetSpellSubtext",6603) P("GetSpellRank",6603) P("IsHelpfulSpell",6603) P("IsHarmfulSpell",6603) P("SpellHasRange",6603)`
+   3. `/run P("IsAutoRepeatSpell",6603) P("IsConsumableSpell",6603)`
+
+   wowlua: untyped. Recorded: (to do)
+3. **Spells by their place in the spellbook** (the same clients):
+   1. `/run P=function(n,...) local function f(ok,...) local t={} for i=1,select("#",...) do local v=select(i,...) t[i]=type(v).."="..tostring(v) end print(n,ok,table.concat(t," ")) end f(pcall(_G[n],...)) end`
+   2. `/run P("GetSpellSubtext",1,"spell") P("IsHelpfulSpell",1,"spell") P("IsHarmfulSpell",1,"spell") P("SpellHasRange",1,"spell") P("IsAutoRepeatSpell",1,"spell")`
+
+   wowlua: untyped. Recorded: (to do)
+4. **Quests** (the same clients; with a quest in the log and tracked, and
+   once with none):
+   1. `/run P=function(n,...) local function f(ok,...) local t={} for i=1,select("#",...) do local v=select(i,...) t[i]=type(v).."="..tostring(v) end print(n,ok,table.concat(t," ")) end f(pcall(_G[n],...)) end`
+   2. `/run P("GetQuestWatchInfo",1) P("IsQuestHardWatched",1) P("QuestPOIGetQuestIDByIndex",1) P("IsUnitOnQuestByQuestID",1,"player")`
+
+   wowlua: untyped. Recorded: (to do)
+5. **Professions and talents** (the same clients; once with a profession
+   window open):
+   1. `/run P=function(n,...) local function f(ok,...) local t={} for i=1,select("#",...) do local v=select(i,...) t[i]=type(v).."="..tostring(v) end print(n,ok,table.concat(t," ")) end f(pcall(_G[n],...)) end`
+   2. `/run P("GetTradeSkillItemLevelFilter") P("GetTradeSkillItemNameFilter") P("GetPreviewTalentPointsSpent") P("GetPreviewTalentPointsSpent",1) P("GetArenaTeamGdfInfo")`
+
+   wowlua: untyped. Recorded: (to do)
+6. **The combat log's entries** (MoP Classic and Retail):
+   1. `/run P=function(n,...) local function f(ok,...) local t={} for i=1,select("#",...) do local v=select(i,...) t[i]=type(v).."="..tostring(v) end print(n,ok,table.concat(t," ")) end f(pcall(_G[n],...)) end`
+   2. `/run P("CombatLogGetNumEntries") P("CombatLogGetNumEntries",true) P("CombatLogGetCurrentEntry")`
+
+   wowlua: untyped. Recorded: (to do)
+
 ## Answered on the beta's last day (2026-10-24)
 
 - PvP ranks (major faction 2800): `GetMajorFactionProgressionInfo` gives
