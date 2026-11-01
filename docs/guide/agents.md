@@ -3,7 +3,8 @@
 An agent that can only read your code has to guess what your addon looks like
 and does. `wowlua mcp` gives it the emulated WoW client you test and debug
 in: it can start your addon, look at the screen, click and type, fire events,
-set breakpoints and profile, then check its own fix, with no game client.
+set breakpoints and profile, then check, format and test its own fix, with no
+game client.
 
 ## Connect your agent
 
@@ -67,6 +68,19 @@ an optional flavor, world profile, clock, and breakpoints to start with.
 `screenshot` draws the screen or one frame and returns it as an image.
 `frame_tree` lists frames with their type, name, shown and visible state,
 rectangle and text, and `find_frames` finds frames by name, type or text.
+`pick` tells which frame draws at a point of the screenshot, and `inspect`
+gives one frame's details: its strata and level, anchors, scripts and hooks
+with where their functions are, registered events, regions, children, and
+the line of your code that made it.
+
+### The world
+
+`units` lists the world's units with their name, reaction, health, distance,
+place and whether the player sees them. `events` logs the game events told
+to your addon, with their arguments, the frames they reached and how long
+the handlers took. `set_screen` changes the window size and UI scale as the
+Graphics settings do, and `save_world` gives the running world as a world
+profile, to keep as `tests/profiles/<name>.json`.
 
 ### Act
 
@@ -87,12 +101,25 @@ the running world with the controls tests use, such as
 breakpoints on functions, API calls, events, scripts and timers. `continue`,
 `step` and `pause` control the run, `stack` and `variables` show where it
 stopped, and `eval` runs Lua in the game or in the stopped function.
+`breakpoints` lists them all with how often each was hit. A stop at an error,
+a blocked action or taint comes with its details: the message and stack, or
+the action and where the taint came from.
 
 ### Measure and read
 
 `profile_start` and `profile_stop` profile the session, optionally writing a
 speedscope file. `output` returns what the session printed and the errors it
 raised.
+
+### Check, format and test
+
+These work on your package and need no session. `check` runs `wowlua check`
+and answers with one line per problem, with its file, line and code. `fmt`
+formats your sources, or with `check` only names the files it would change.
+`build` builds the addon. `test` runs your tests, all of them or those whose
+names contain a filter, and answers with how many passed and each failure
+with its message and line; with `coverage` it adds the totals and the files
+with the most lines that never ran.
 
 ## Why its results repeat
 
@@ -114,6 +141,7 @@ same on every machine, so a claim such as "this change made `onBagUpdate`
 | "Why does the counter stop after the first loot?" | Sets a breakpoint on the event, fires it with `fire_event`, steps and reads the variables |
 | "Invite two party members and check the party frames." | Starts with a world profile that has other players, runs `/invite`, takes a screenshot |
 | "Make the bag scan cheaper." | Profiles while it fires bag events, changes the code, compares the instruction counts |
+| "Run the tests and fix what fails." | Runs `test`, reads the failures, fixes the code, runs `check` and `test` again |
 | "Turn what you just checked into a test." | Writes a `@test` with `mock.slash`, `mock.click` and `toMatchScreenshot` |
 
 ## Keep what the agent checked

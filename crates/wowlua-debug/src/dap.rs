@@ -27,6 +27,14 @@ pub trait Launcher: Send + Sync + 'static {
         opts: &Options,
         session: &mut dyn FnMut(&wowlua_test::Suite, Option<crate::controller::Screenshotter>),
     ) -> Result<(), String>;
+    /// Runs a wowlua command in the package (`check`, `fmt`, `build`,
+    /// `test` with its arguments) for the MCP tools that are not a
+    /// session's (decision T549): whether it succeeded, and what it
+    /// printed. A host that runs none answers an error.
+    fn command(&self, args: &[String]) -> Result<(bool, String), String> {
+        let _ = args;
+        Err("this host runs no wowlua commands".into())
+    }
 }
 
 /// Reads one DAP message (`Content-Length` framed JSON).

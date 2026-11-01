@@ -41,6 +41,27 @@ impl wowlua_debug::dap::Launcher for CliLauncher {
             },
         )
     }
+
+    /// The command as wowlua itself runs it, in the package.
+    fn command(&self, args: &[String]) -> Result<(bool, String), String> {
+        let exe = std::env::current_exe().map_err(|e| format!("wowlua's own path: {e}"))?;
+        let mut cmd = std::process::Command::new(exe);
+        if let Some(m) = &self.global.manifest {
+            cmd.arg("--manifest").arg(m);
+        }
+        if let Some(p) = &self.global.package {
+            cmd.arg("--package").arg(p);
+        }
+        let out = cmd
+            .args(args)
+            .current_dir(&self.root)
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("running wowlua {}: {e}", args.join(" ")))?;
+        let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+        text.push_str(&String::from_utf8_lossy(&out.stderr));
+        Ok((out.status.success(), text))
+    }
 }
 
 /// Serves MCP on stdio until the client disconnects.
