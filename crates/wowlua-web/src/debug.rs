@@ -119,8 +119,8 @@ pub struct QueueLink {
 }
 
 impl Link for QueueLink {
-    fn recv(&mut self, timeout_ms: Option<u64>) -> Option<(u64, Request)> {
-        if timeout_ms.is_some() {
+    fn recv(&mut self, timeout: Option<std::time::Duration>) -> Option<(u64, Request)> {
+        if timeout.is_some() {
             return None;
         }
         let next = self.requests.borrow_mut().pop_front();
@@ -165,8 +165,8 @@ mod page {
 
 #[cfg(target_arch = "wasm32")]
 impl Link for PageLink {
-    fn recv(&mut self, timeout_ms: Option<u64>) -> Option<(u64, Request)> {
-        let text = page::recv(timeout_ms.map_or(-1.0, |t| t as f64))?;
+    fn recv(&mut self, timeout: Option<std::time::Duration>) -> Option<(u64, Request)> {
+        let text = page::recv(timeout.map_or(-1.0, |t| t.as_secs_f64() * 1000.0))?;
         match parse_request(&text) {
             Some(r) => Some(r),
             None => {

@@ -2,6 +2,12 @@
 
 All notable changes to wowlua. Each minor version closes a milestone of the [roadmap](spec/roadmap.md).
 
+## Unreleased
+
+### Fixed
+
+- A debug session in real time keeps to the game's frame limit: at `maxFPS` 120 it runs at 120 frames a second, not about 110.
+
 ## 0.13.8 (2026-10-31)
 
 ### New

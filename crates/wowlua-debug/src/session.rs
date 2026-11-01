@@ -148,17 +148,17 @@ impl ChannelLink {
 }
 
 impl Link for ChannelLink {
-    fn recv(&mut self, timeout_ms: Option<u64>) -> Option<(u64, Request)> {
+    fn recv(&mut self, timeout: Option<Duration>) -> Option<(u64, Request)> {
         if self.gone {
             return None;
         }
-        let r = match timeout_ms {
+        let r = match timeout {
             None => self.rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
-            Some(0) => self.rx.try_recv().map_err(|e| match e {
+            Some(t) if t.is_zero() => self.rx.try_recv().map_err(|e| match e {
                 std::sync::mpsc::TryRecvError::Empty => RecvTimeoutError::Timeout,
                 std::sync::mpsc::TryRecvError::Disconnected => RecvTimeoutError::Disconnected,
             }),
-            Some(ms) => self.rx.recv_timeout(Duration::from_millis(ms)),
+            Some(t) => self.rx.recv_timeout(t),
         };
         match r {
             Ok(m) => Some(m),
@@ -398,12 +398,25 @@ fn frame_ms(vm: &mut wowlua_vm::Vm, background: bool, display_hz: f64) -> f64 {
     1000.0 / fps.max(1.0)
 }
 
+/// When a realtime frame starts, for the rate (decision T548): when the
+/// last one planned it (`planned`, its start plus a frame), so a wait that
+/// ends late does not delay the frames after it, unless the frame is a
+/// whole frame late (a slow frame, a stop): then now.
+fn frame_start(planned: Option<Instant>, now: Instant, frame: Duration) -> Instant {
+    match planned {
+        Some(t) if now.saturating_duration_since(t) < frame => t,
+        _ => now,
+    }
+}
+
 fn run_addon(suite: &Suite, opts: &Options, shared: &SharedRef) -> (Option<String>, bool) {
     let mut session = match wowlua_test::AddonSession::open(suite) {
         Ok(s) => s,
         Err(e) => return (Some(e), true),
     };
     let mut last_frame: Option<Instant> = None;
+    // the next frame's planned start (T548)
+    let mut next_frame: Option<Instant> = None;
     let mut last_clock = opts.clock;
     loop {
         // A `/reload` (`ReloadUI()`) ended the addon's session: the UI loads
@@ -457,6 +470,7 @@ fn run_addon(suite: &Suite, opts: &Options, shared: &SharedRef) -> (Option<Strin
         if clock != last_clock {
             last_clock = clock;
             last_frame = None;
+            next_frame = None;
         }
         match clock {
             ClockMode::Realtime => {
@@ -474,16 +488,16 @@ fn run_addon(suite: &Suite, opts: &Options, shared: &SharedRef) -> (Option<Strin
                     let s = shared.borrow();
                     (s.background, s.display_hz)
                 };
-                let deadline =
-                    now + Duration::from_secs_f64(frame_ms(vm, background, display_hz) / 1000.0);
+                let frame = Duration::from_secs_f64(frame_ms(vm, background, display_hz) / 1000.0);
+                let deadline = frame_start(next_frame, now, frame) + frame;
+                next_frame = Some(deadline);
                 // Requests that come before the next frame wait for it.
                 loop {
                     let now = Instant::now();
                     if now >= deadline {
                         break;
                     }
-                    let ms = (deadline - now).as_millis().max(1) as u64;
-                    let next = shared.borrow_mut().link.recv(Some(ms));
+                    let next = shared.borrow_mut().link.recv(Some(deadline - now));
                     match next {
                         Some(r) => {
                             shared.borrow_mut().deferred.push(r);
@@ -554,5 +568,26 @@ mod tests {
         set(&mut vm, "vsync", "0");
         set(&mut vm, "maxFPS", "0");
         assert_eq!(fps(frame_ms(&mut vm, false, 60.0)), 1000.0);
+    }
+
+    /// Frames keep their rate though each wait for the next one ends late
+    /// (decision T548): 120 frames of a 120 fps limit last a second, not
+    /// 120 times a frame and the lateness.
+    #[test]
+    fn late_waits_do_not_slow_the_frames() {
+        let frame = Duration::from_secs_f64(1.0 / 120.0);
+        let late = Duration::from_micros(700);
+        let t0 = Instant::now();
+        let (mut planned, mut now) = (None, t0);
+        for _ in 0..120 {
+            let start = frame_start(planned, now, frame);
+            planned = Some(start + frame);
+            now = start + frame + late;
+        }
+        let took = (planned.expect("planned") - t0).as_secs_f64();
+        assert!((took - 1.0).abs() < 0.001, "{took}");
+        // a frame a whole frame late starts the count again
+        let at = t0 + frame * 3;
+        assert_eq!(frame_start(Some(t0), at, frame), at);
     }
 }

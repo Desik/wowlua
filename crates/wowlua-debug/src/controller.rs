@@ -19,10 +19,10 @@ use crate::values::{self, RefTarget};
 
 /// How requests reach a session and its answers and events leave it.
 pub trait Link {
-    /// The next request: waits for one (`timeout_ms`: at most that long;
+    /// The next request: waits for one (`timeout`: at most that long;
     /// `None`: no request in time, or the front-end is gone, see
     /// [`gone`](Self::gone)).
-    fn recv(&mut self, timeout_ms: Option<u64>) -> Option<(u64, Request)>;
+    fn recv(&mut self, timeout: Option<std::time::Duration>) -> Option<(u64, Request)>;
     fn respond(&mut self, id: u64, r: Result<Response, String>);
     fn event(&mut self, e: Event);
     /// The front-end disconnected.
@@ -600,7 +600,7 @@ impl Controller {
             }
         }
         loop {
-            let next = self.shared().link.recv(Some(0));
+            let next = self.shared().link.recv(Some(std::time::Duration::ZERO));
             let Some((id, req)) = next else { break };
             if between_frames && runs_code(&req) && self.shared.borrow().drives_time {
                 self.shared().run_queue.push((id, req));
