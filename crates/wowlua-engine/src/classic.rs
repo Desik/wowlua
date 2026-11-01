@@ -93,6 +93,17 @@ fn unsupported(vm: &mut Vm, c: NativeCall) -> Ret {
     ))
 }
 
+/// `C_LootHistory.GetNumItems()`: no loot rolls (the group's are not
+/// modelled; unverified).
+fn none_counted(_vm: &mut Vm, _c: NativeCall) -> Ret {
+    Ok(vec![Value::Num(0.0)])
+}
+
+/// `C_ProductChoice.GetChoices()`: no product choices (unverified).
+fn no_choices(vm: &mut Vm, _c: NativeCall) -> Ret {
+    Ok(vec![Value::Table(vm.new_table())])
+}
+
 /// The behaviours, on the classic flavors alone.
 pub fn behaviours(flavor: &str) -> Vec<(&'static str, NativeFn)> {
     if !matches!(flavor, "mists" | "tbc" | "vanilla") {
@@ -100,6 +111,8 @@ pub fn behaviours(flavor: &str) -> Vec<(&'static str, NativeFn)> {
     }
     let mut out: Vec<(&'static str, NativeFn)> = vec![
         ("C_CombatLog.GetCurrentEventInfo", get_current_event_info),
+        ("C_LootHistory.GetNumItems", none_counted),
+        ("C_ProductChoice.GetChoices", no_choices),
         ("C_GameRules.IsHardcoreActive", is_hardcore_active),
         ("GetTalentGroupRole", unsupported),
         ("GetWeaponEnchantInfo", get_weapon_enchant_info),

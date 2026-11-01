@@ -652,6 +652,70 @@ fn color_for_quality(vm: &mut Vm, c: NativeCall) -> Ret {
     Ok(vec![build(vm, &Rec::Table(fields))])
 }
 
+/// The flavor's colors, `(name, 0xAARRGGBB)` by name: its installed
+/// client's `GlobalColor` table (`cargo xtask types gen`, decision T554).
+fn colors_of(flavor: &str) -> Option<Vec<(&'static str, u32)>> {
+    let text = match flavor {
+        "camelot" => include_str!("../data/camelot-colors.txt"),
+        "vanilla" => include_str!("../data/vanilla-colors.txt"),
+        "tbc" => include_str!("../data/tbc-colors.txt"),
+        "mists" => include_str!("../data/mists-colors.txt"),
+        _ => return None,
+    };
+    Some(
+        text.lines()
+            .filter(|l| !l.starts_with('#'))
+            .filter_map(|l| {
+                let (name, argb) = l.split_once('\t')?;
+                Some((name, u32::from_str_radix(argb, 16).ok()?))
+            })
+            .collect(),
+    )
+}
+
+/// `C_UIColor.GetColors()`: the client's colors, `{ baseTag, color }` by
+/// name, each a `ColorMixin` color of its bytes (as the client makes them
+/// floats); a flavor without them answers as recorded.
+fn ui_colors(vm: &mut Vm, c: NativeCall) -> Ret {
+    let Some(entries) = color_entries(&engine(vm).flavor) else {
+        return Ok(recorded_answer(vm, "C_UIColor.GetColors", &c));
+    };
+    let list = vm.new_table();
+    for (i, entry) in entries.iter().enumerate() {
+        let value = build(vm, entry);
+        let _ = vm
+            .heap
+            .table_mut(list)
+            .set(Value::Num((i + 1) as f64), value);
+    }
+    Ok(vec![Value::Table(list)])
+}
+
+/// `C_UIColor.GetColors`' entries for the flavor, as a recording shows them.
+fn color_entries(flavor: &str) -> Option<Vec<Rec>> {
+    let mut out = Vec::new();
+    for (name, argb) in colors_of(flavor)? {
+        // (the client's: the byte times 1/255, in floats)
+        let byte = |shift: u32| {
+            Rec::Num(f64::from(
+                ((argb >> shift) & 0xFF) as f32 * (1.0f32 / 255.0),
+            ))
+        };
+        let color = Rec::Table(vec![
+            ("GetRGB".to_string(), Rec::Func),
+            ("a".to_string(), byte(24)),
+            ("b".to_string(), byte(0)),
+            ("g".to_string(), byte(8)),
+            ("r".to_string(), byte(16)),
+        ]);
+        out.push(Rec::Table(vec![
+            ("baseTag".to_string(), Rec::Str(name.to_string())),
+            ("color".to_string(), color),
+        ]));
+    }
+    Some(out)
+}
+
 /// `GetGlobalEnvironment()`: the addons' globals, from secure code too.
 fn global_environment(vm: &mut Vm, _c: NativeCall) -> Ret {
     Ok(vec![Value::Table(engine(vm).main_globals)])
@@ -883,6 +947,7 @@ pub fn behaviours() -> Vec<(&'static str, NativeFn)> {
         ("GetGlobalEnvironment", global_environment),
         ("SwapToGlobalEnvironment", swap_to_global_environment),
         ("C_ColorOverrides.GetColorForQuality", color_for_quality),
+        ("C_UIColor.GetColors", ui_colors),
         (
             "C_Container.CalculateTotalNumberOfFreeBagSlots",
             free_bag_slots,
@@ -982,6 +1047,49 @@ mod tests {
             lines += 1;
         }
         assert_eq!(recorded().len(), lines);
+    }
+
+    /// Camelot's colors from its table are the ones the client answered
+    /// (recorded on 70425): names, order, and values to the float.
+    #[test]
+    fn the_table_s_colors_are_the_recorded_ones() {
+        fn plain(r: &Rec) -> Rec {
+            match r {
+                Rec::Table(entries) => Rec::Table(
+                    entries
+                        .iter()
+                        .filter(|(_, v)| *v != Rec::Func)
+                        .map(|(k, v)| (k.clone(), plain(v)))
+                        .collect(),
+                ),
+                // (the probe shows 14 digits)
+                Rec::Num(n) => Rec::Str(format!("{n:.13e}")),
+                other => other.clone(),
+            }
+        }
+        let Some(Rec::Table(list)) = recorded()["C_UIColor.GetColors"].first().cloned() else {
+            panic!("the recorded colors");
+        };
+        let mut theirs: Vec<(u32, Rec)> = list
+            .into_iter()
+            .map(|(k, v)| (k.parse().unwrap(), v))
+            .collect();
+        theirs.sort_by_key(|(k, _)| *k);
+        let ours = color_entries("camelot").unwrap();
+        assert_eq!(ours.len(), theirs.len());
+        // Its alpha: 0 in 70658's table, 1 as recorded on 70425 (the build's
+        // change or a hotfix: tests/ingame/PROBES.md, "The Camelot update").
+        let changed = Rec::Str("COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR".into());
+        let mut differ = Vec::new();
+        for (mine, (i, recorded)) in ours.iter().zip(&theirs) {
+            if plain(mine) != plain(recorded) {
+                differ.push(*i);
+                let Rec::Table(fields) = mine else { panic!() };
+                assert_eq!(fields[0].1, changed, "color {i}");
+            }
+        }
+        assert_eq!(differ.len(), 1, "{differ:?}");
+        assert!(color_entries("vanilla").is_some_and(|c| c.len() > 150));
     }
 
     #[test]

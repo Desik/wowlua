@@ -45,6 +45,7 @@ mod atlases;
 mod corpus;
 mod coverage;
 mod diagnostics;
+mod enginedata;
 mod fixture;
 mod flavor_data;
 mod fullprobe;

@@ -38,6 +38,7 @@ const FILES: &[(&str, u32)] = &[
     ("CreatureModelData", 1365368),
     ("Criteria", 1263817),
     ("CriteriaTree", 1263818),
+    ("GlobalColor", 4328468),
     ("GlobalStrings", 1394440),
     ("HelmetGeosetData", 2821752),
     ("Item", 841626),

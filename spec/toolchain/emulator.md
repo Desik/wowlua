@@ -357,6 +357,16 @@ The WoW API the VM's code calls, per flavor.
   client's does), and the classic clients' `GetWeaponEnchantInfo` answers
   no enchant on each hand (Mists: two hands, 8 values; TBC and Classic Era
   also the ranged slot, 12).
+  The `Enum` and `Constants` the client changes and the number globals it
+  defines itself (`LE_*`) are camelot's recording; on standard, mists, tbc
+  and vanilla, what the documentation lacks comes from Ketho's dump of the
+  client (its `LuaEnum.lua`, at the commit the declarations take: older
+  than an installed client, so it only adds), and the tables the flavor's
+  own `EnvironmentCleanup.lua` removes are secure, as camelot's recorded
+  ones (`data/<flavor>-enums.txt`, `data/<flavor>-globals.txt`; decision
+  T554). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
+  table, by name, each byte times 1/255 in floats as the client's
+  (`data/<flavor>-colors.txt`, which `cargo xtask types gen` writes).
 - **Natives.** The API functions are natives of the VM, as the client's are C
   functions (decision T198): `[C]` in stack traces, the client's argument
   errors, no taint of their own.
@@ -560,7 +570,10 @@ takes the flavor's `Interface` folder and its global strings:
   ones on beta and PTR clients (WoW Forever's beta ran from `_classic_beta_`).
 - **Load order** (inferred, unverified): `LoadFirst` ones first, each after
   its `Dep`, `Dependencies`, `RequiredDep` and `OptionalDep` addons,
-  otherwise by name.
+  otherwise by name; a startup addon with `LoadWith` right after the addons
+  it names (Classic's Blizzard_UIParentPanelManager after Blizzard_UIParent,
+  before the `LoadFirst` addons that use its `UIPanelWindows`; decision
+  T554).
   File lines follow their inline directives; `[Family]`, `[Game]` and
   `[TextLocale]` name the flavor's folders (`Mainline`, `Camelot`, `enUS`).
   `ADDON_LOADED` fires after each addon.
