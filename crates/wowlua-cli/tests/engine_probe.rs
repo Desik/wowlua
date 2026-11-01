@@ -249,8 +249,11 @@ fn client_globals() -> &'static std::collections::HashSet<String> {
 
 /// What the build the declarations come from (the installed client
 /// 1.60.1.70658, decision T553) changed since the battery was recorded on
-/// 70425: its documentation's enums, until the battery is recorded again.
+/// 70425: its documentation's enums, and one color's alpha in its table
+/// (`COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR`, T554), until the battery is
+/// recorded again.
 const NEWER_BUILD: &[&str] = &[
+    "probe.loadCalls.C_UIColor.GetColors",
     "probe.enums.ForeverExperiencePreset.Modern",
     "probe.enums.ForeverExperiencePreset.Enhanced",
     "probe.enums.NamePartType.Combined",

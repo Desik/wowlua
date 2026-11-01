@@ -19,7 +19,7 @@ engine modules and the generated stand-ins, but no recording of their own: what
 their clients answer differently is unverified.
 
 - **API functions:** 5,110 of the 5,113 documented camelot functions have
-  behaviour (99.9%): 1,056 modelled, 354 answered from recordings, 3,700 by a
+  behaviour (99.9%): 1,057 modelled, 353 answered from recordings, 3,700 by a
   documentation-based fill-in. Of all 7,178 C functions the client has,
   documented or not, 7,175 have behaviour.
 - **Widget methods:** 1,477 of the 1,477 documented methods have behaviour
@@ -32,11 +32,11 @@ their clients answer differently is unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
-| camelot | 5,113 | 5,110 (99.9%) | 354 | 1,477 | 1,477 (100.0%) | all |
-| standard | 4,871 | 4,520 (92.8%) | 0 | 1,438 | 1,430 (99.4%) | none |
-| vanilla | 3,221 | 2,907 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| tbc | 3,221 | 2,907 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| mists | 3,222 | 2,904 (90.1%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| camelot | 5,113 | 5,110 (99.9%) | 353 | 1,477 | 1,477 (100.0%) | all |
+| standard | 4,871 | 4,521 (92.8%) | 0 | 1,438 | 1,430 (99.4%) | none |
+| vanilla | 3,221 | 2,908 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| tbc | 3,221 | 2,908 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| mists | 3,222 | 2,905 (90.2%) | 0 | 1,360 | 1,348 (99.1%) | none |
 
 ## API behaviour
 
@@ -319,7 +319,7 @@ ones together):
 | `C_Trophy` | 9 | 0 | 0 | 9 | 0 |
 | `C_Tutorial` | 4 | 0 | 0 | 4 | 0 |
 | `C_UI` | 7 | 1 | 2 | 4 | 0 |
-| `C_UIColor` | 1 | 0 | 1 | 0 | 0 |
+| `C_UIColor` | 1 | 1 | 0 | 0 | 0 |
 | `C_UIFileAsset` | 3 | 1 | 0 | 2 | 0 |
 | `C_UIWidgetManager` | 42 | 0 | 6 | 36 | 0 |
 | `C_UnitAuras` | 39 | 9 | 1 | 29 | 0 |
@@ -346,13 +346,13 @@ ones together):
 | `math` | 38 | 38 | 0 | 0 | 0 |
 | `string` | 23 | 23 | 0 | 0 | 0 |
 | `table` | 23 | 23 | 0 | 0 | 0 |
-| **All** | 7,178 | 1,669 | 437 | 5,069 | 3 |
+| **All** | 7,178 | 1,670 | 436 | 5,069 | 3 |
 
 By where the function is listed:
 
 | List | Functions | Model | Recorded | Fill-in | Generated |
 |------|----------:|------:|---------:|--------:|----------:|
-| Blizzard's API documentation | 5,113 | 1,056 | 354 | 3,700 | 3 |
+| Blizzard's API documentation | 5,113 | 1,057 | 353 | 3,700 | 3 |
 | the client's other C functions (`/stdtest inventory`) | 2,065 | 613 | 83 | 1,369 | 0 |
 | the engine's own, in neither list | 15 | 14 | 0 | 1 | 0 |
 
@@ -393,10 +393,10 @@ The modules that answer, by how many functions and methods:
 | `extras` | model | 78 |
 | `tradeskill` | model | 71 |
 | `curves` | model | 70 |
-| `facts` | recorded | 70 |
+| `facts` | recorded | 69 |
 | `formatters` | model | 62 |
 | `queries` | model | 62 |
-| `facts` | model | 58 |
+| `facts` | model | 59 |
 | `auction` | model | 52 |
 | `traits` | recorded | 47 |
 | `quests` | model | 41 |
@@ -2459,6 +2459,7 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - Frame rate and render scale (decisions T538, T539)
 - The camera (decisions T520, T521)
 - The dev tools (0.12.1)
+- The Camelot update (decision T553)
 
 ## In-game regressions
 

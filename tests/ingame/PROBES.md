@@ -1069,3 +1069,7 @@ trainers. These steps record them again on the updated client.
 
    wowlua: `engine_probe`'s `NEWER_BUILD` lists what 70658 changed. Recorded:
    (to do)
+5. **One color** (decision T554): `/run for _,c in ipairs(C_UIColor.GetColors()) do if c.baseTag=="COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR" then print(c.color:GetRGBA()) end end`
+
+   wowlua: `0.16862745583057 0.57647061347961 0.019607843831182 0`, the
+   installed table's alpha (0); 70425 answered 1. Recorded: (to do)

@@ -177,6 +177,9 @@ fn fetch_pinned(dir: &Path, flavor: &str) -> Result<()> {
     Ok(())
 }
 
+/// An installed client's colors in the `fetch` folder (T554).
+const COLORS: &str = "GlobalColor.txt";
+
 pub fn fetch(dir: &Path) -> Result<()> {
     fs::create_dir_all(dir)?;
     // `WOWLUA_FETCH_ONLY=camelot`: that flavor's UI code and strings alone,
@@ -236,7 +239,9 @@ pub fn fetch(dir: &Path) -> Result<()> {
         };
         let target = dir.join(&flavor);
         let marker = target.join(".wowlua-installed");
-        if fs::read_to_string(&marker).ok().as_deref() == Some(casc.version.as_str()) {
+        if fs::read_to_string(&marker).ok().as_deref() == Some(casc.version.as_str())
+            && target.join(COLORS).exists()
+        {
             println!("{flavor}: the installed client {} (cached)", casc.version);
             continue;
         }
@@ -266,12 +271,21 @@ pub fn fetch(dir: &Path) -> Result<()> {
             target.join(wowlua_test::INSTALLED_STRINGS),
         )?;
         fs::remove_dir_all(&part)?;
+        // Its colors, for the engine's (`gen`, T554).
+        let colors = wowlua_casc::globalcolors::read(&casc)
+            .with_context(|| format!("{flavor}: the installation's colors cannot be read"))?;
+        let text: String = colors
+            .iter()
+            .map(|(name, argb)| format!("{name}\t{argb:08X}\n"))
+            .collect();
+        fs::write(target.join(COLORS), text)?;
         fs::write(&marker, &casc.version)?;
     }
     let dumps = [
         ("strings", "GlobalStrings/enUS.lua"),
         ("api", "GlobalAPI.lua"),
         ("events", "Events.lua"),
+        ("enums", "LuaEnum.lua"),
     ];
     for ((_, branch, commit), (kind, file)) in STRINGS
         .iter()
@@ -744,12 +758,38 @@ pub fn generate(root: &Path, dir: &Path) -> Result<()> {
         // The installed client's code in its place (`fetch`, T553): its
         // version named, and the commit CI fetches.
         let installed = fs::read_to_string(dir.join(&flavor).join(".wowlua-installed")).ok();
+        // The engine's colors (`C_UIColor.GetColors`), the installed
+        // client's (T554).
+        if let Some(version) = &installed {
+            let colors = fs::read_to_string(dir.join(&flavor).join(COLORS)).context(
+                "the installed client's colors are missing: run `cargo xtask types fetch`",
+            )?;
+            crate::write_if_changed(
+                &root.join(format!("crates/wowlua-engine/data/{flavor}-colors.txt")),
+                &format!(
+                    "# The installed client {version}'s GlobalColor table (`cargo xtask types gen`,\n\
+                     # decision T554): name<TAB>AARRGGBB, by name as the client answers them.\n{colors}"
+                ),
+            )?;
+        }
         let ui = match &installed {
             Some(version) => format!(
                 "the installed client {version}, its UI code and global strings; in CI wow-ui-source {build}, commit {ui_commit}"
             ),
             None => format!("wow-ui-source {build}, commit {ui_commit}"),
         };
+        // The number globals of a flavor without a recording, from Ketho's
+        // dump (T554), before they are read here.
+        if flavor != "camelot" {
+            let dump = fs::read_to_string(dir.join("enums").join(format!("{commit}.lua")))
+                .context("Ketho's enums missing: run `cargo xtask types fetch`")?;
+            crate::enginedata::write_globals(
+                root,
+                &flavor,
+                &format!("Ketho's BlizzardInterfaceResources {branch} {commit}"),
+                &dump,
+            )?;
+        }
         // The engine's record of the number globals the client defines
         // itself (`/stdtest engine`, `scalars`), where there is one.
         let number_globals: Vec<String> = fs::read_to_string(
@@ -860,6 +900,26 @@ pub fn generate(root: &Path, dir: &Path) -> Result<()> {
             fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
             println!("updated {}", path.display());
         }
+    }
+    // The engine's enums and number globals where no recording of the
+    // client's own has them (T554).
+    for (flavor, json) in &output.api {
+        if flavor == "camelot" {
+            continue;
+        }
+        let Some((_, branch, commit)) = STRINGS.iter().find(|(f, _, _)| f == flavor) else {
+            continue;
+        };
+        let dump = fs::read_to_string(dir.join("enums").join(format!("{commit}.lua")))
+            .context("Ketho's enums missing: run `cargo xtask types fetch`")?;
+        crate::enginedata::write_enums(
+            root,
+            flavor,
+            &format!("Ketho's BlizzardInterfaceResources {branch} {commit}"),
+            &dump,
+            json,
+            &dir.join(flavor).join("Interface"),
+        )?;
     }
     let mut written = vec![("shared".to_string(), output.shared)];
     written.extend(output.flavors);

@@ -522,21 +522,15 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
         vm.heap.table_mut(constants).set_str(k, Value::Table(t));
     }
     // The number globals the client defines (`LE_*`).
-    if flavor == "camelot" {
-        for line in include_str!("../data/camelot-globals.txt").lines() {
-            if let Some((name, n)) = line.split_once('\t')
-                && let Ok(n) = n.parse::<f64>()
-                && vm.get_global(name).is_nil()
-            {
-                vm.set_global(name, Value::Num(n));
-            }
+    for line in client_data(flavor).map_or("", |d| d.globals).lines() {
+        if let Some((name, n)) = line.split_once('\t')
+            && let Ok(n) = n.parse::<f64>()
+            && vm.get_global(name).is_nil()
+        {
+            vm.set_global(name, Value::Num(n));
         }
     }
-    let secure_tables = if flavor == "camelot" {
-        recorded_tables(vm, include_str!("../data/camelot-enums.txt"))
-    } else {
-        Vec::new()
-    };
+    let secure_tables = recorded_tables(vm, client_data(flavor).map_or("", |d| d.enums));
     // The engine's own behaviours, the recorded answers first: any
     // behaviour of the engine's own takes their place (and a fill-in's that
     // a setter of its changes, `OVER_RECORDED`).
@@ -851,6 +845,33 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
 /// `Enum.X.Field<TAB>number 5` sets a field, `…<TAB>-` removes a field or a
 /// whole table, `…<TAB>secure` takes a table out for Blizzard's code
 /// alone (returned: put back while it loads, `ui::load`).
+/// The client's own `Enum` and `Constants` changes and number globals:
+/// camelot's recorded (`/stdtest engine`), the other flavors' from Ketho's
+/// dumps and their EnvironmentCleanup.lua (decision T554).
+struct ClientData {
+    enums: &'static str,
+    globals: &'static str,
+}
+
+fn client_data(flavor: &str) -> Option<ClientData> {
+    macro_rules! data {
+        ($f:literal) => {
+            ClientData {
+                enums: include_str!(concat!("../data/", $f, "-enums.txt")),
+                globals: include_str!(concat!("../data/", $f, "-globals.txt")),
+            }
+        };
+    }
+    Some(match flavor {
+        "camelot" => data!("camelot"),
+        "standard" => data!("standard"),
+        "mists" => data!("mists"),
+        "tbc" => data!("tbc"),
+        "vanilla" => data!("vanilla"),
+        _ => return None,
+    })
+}
+
 fn recorded_tables(vm: &mut Vm, data: &str) -> Vec<SecureTable> {
     let mut secure = Vec::new();
     for line in data.lines().filter(|l| !l.starts_with('#')) {
