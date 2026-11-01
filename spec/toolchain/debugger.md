@@ -73,7 +73,9 @@ game's settings let them, each moving time as far as it really took, so
 `OnUpdate` and timers advance as in game: no faster than `maxFPS`
 (`maxFPSBk` while the session is in the background) and, with `vsync` on,
 the display's rate (decision T538): 60 Hz, or what the host tells
-(`SetDisplayRate`, decision T544); in `manual` mode
+(`SetDisplayRate`, decision T544), and at that rate exactly: a frame
+starts when the one before planned it, so a wait that ends late does not
+slow the frames after it (decision T548); in `manual` mode
 (the default of MCP sessions) time moves only when asked
 (`advance(seconds | frames)`), so what an agent sees repeats exactly. Time
 stops while paused.

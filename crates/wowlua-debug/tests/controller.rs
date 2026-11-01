@@ -23,9 +23,9 @@ struct Script {
 }
 
 impl Link for Script {
-    fn recv(&mut self, timeout_ms: Option<u64>) -> Option<(u64, Request)> {
+    fn recv(&mut self, timeout: Option<std::time::Duration>) -> Option<(u64, Request)> {
         // While running, nothing comes in: the script is for stops.
-        if timeout_ms.is_some() {
+        if timeout.is_some() {
             return None;
         }
         let r = self.queue.borrow_mut().pop_front()?;
