@@ -2,13 +2,7 @@
 
 All notable changes to wowlua. Each minor version closes a milestone of the [roadmap](spec/roadmap.md).
 
-## Unreleased
-
-### Fixed
-
-- A debug session in real time keeps to the game's frame limit: at `maxFPS` 120 it runs at 120 frames a second, not about 110.
-
-## 0.13.8 (2026-10-31)
+## 0.13.8 (2026-11-01)
 
 ### New
 
@@ -43,6 +37,7 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 
 ### Fixed
 
+- A debug session in real time keeps to the game's frame limit: at `maxFPS` 120 it runs at 120 frames a second, not about 110.
 - A creature the client's cache knows from a newer client now shows its model (its displays were missed).
 - A world profile's units' `npcId` was ignored; it now names the creature, as `npcID` does in a test.
 - `GetRealmName` and `GetNormalizedRealmName` always gave `Realm` in a test; they now give your character's realm from the world profile or `mock.setPlayer`, as `UnitFullName` and chat already did (`GetNormalizedRealmName` without spaces and hyphens).
