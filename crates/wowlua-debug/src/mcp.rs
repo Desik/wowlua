@@ -4,7 +4,8 @@
 //! images, the frame tree and what a frame or a point is, the world's
 //! units and the events told, input, time, evaluation, breakpoints,
 //! stepping and profiles; and the package's commands: check, fmt, build
-//! and its tests with coverage (decision T549). A tool that runs code waits
+//! and its tests with coverage (decision T549); wowlua's docs and the
+//! standard library's reference (decision T551). A tool that runs code waits
 //! until the session stops or settles, and answers with its state and what
 //! it printed.
 
@@ -19,6 +20,10 @@ use serde_json::{Value as Json, json};
 use crate::dap::{CommandOutput, Launcher, PackageCommand};
 use crate::protocol::*;
 use crate::session::{ChannelLink, ClockMode, Options, Outgoing};
+
+mod docs {
+    include!(concat!(env!("OUT_DIR"), "/docs.rs"));
+}
 
 /// How long a tool waits for the session to stop.
 const WAIT: Duration = Duration::from_secs(120);
@@ -348,6 +353,18 @@ fn tools() -> Json {
             "output",
             "What the session printed and the errors it raised since asked last.",
             json!({}),
+            &[]
+        ),
+        t(
+            "wowlua_docs",
+            "wowlua's docs, of this version: with no path the list (each doc's path and title), with a path that doc (guide/testing.md, language/types.md, stdlib/events.md, reference/manifest.md, …).",
+            json!({ "path": { "type": "string" } }),
+            &[]
+        ),
+        t(
+            "wowlua_reference",
+            "The standard library's reference: with no module the list of wowlua:* modules, with a module (wowlua:events, wowlua:test, wowlua:mock, …) its declarations and source with their doc comments.",
+            json!({ "module": { "type": "string" } }),
             &[]
         ),
         t(
@@ -1162,6 +1179,55 @@ impl Server {
                 "built",
             ),
             "test" => self.test(a),
+            "wowlua_docs" => match str_arg(a, "path") {
+                None => text(
+                    docs::DOCS
+                        .iter()
+                        .map(|(path, body)| {
+                            let title = body
+                                .lines()
+                                .find(|l| l.starts_with("# "))
+                                .map_or("", |l| l.trim_start_matches("# "));
+                            format!("{path} — {title}")
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                Some(path) => {
+                    let path = path.trim_start_matches("docs/");
+                    match docs::DOCS.iter().find(|(p, _)| *p == path) {
+                        Some((_, body)) => text(*body),
+                        None => error(format!(
+                            "no doc {path}: wowlua_docs without a path lists them"
+                        )),
+                    }
+                }
+            },
+            "wowlua_reference" => match str_arg(a, "module") {
+                None => text(
+                    wowlua_stdlib::module_names()
+                        .iter()
+                        .map(|n| format!("wowlua:{n}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                Some(name) => {
+                    let name = name.trim_start_matches("wowlua:");
+                    match wowlua_stdlib::module(name) {
+                        Some(m) => {
+                            let mut out = String::new();
+                            if let Some(d) = &m.declaration {
+                                out.push_str(&format!("-- wowlua:{name}: declarations\n{d}\n"));
+                            }
+                            out.push_str(&format!("-- wowlua:{name}: source\n{}", m.source));
+                            text(out)
+                        }
+                        None => error(format!(
+                            "no module wowlua:{name}: wowlua_reference without a module lists them"
+                        )),
+                    }
+                }
+            },
             other => error(format!("no tool {other}")),
         }
     }
@@ -1207,7 +1273,7 @@ impl Server {
                 "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2025-06-18")),
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "wowlua", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Drives the package's addon in wowlua's emulated WoW client. start_session first (the addon, or a test file); screenshot shows the UI; frame_tree and find_frames give frames and their pixel rectangles; click/type_text/press_key/advance act; pick and inspect tell what a point or frame is; units and events show the world; breakpoints, step, stack, variables and eval debug; profile_start/profile_stop measure. check, fmt, build and test work on the package without a session.",
+                "instructions": "Drives the package's addon in wowlua's emulated WoW client. start_session first (the addon, or a test file); screenshot shows the UI; frame_tree and find_frames give frames and their pixel rectangles; click/type_text/press_key/advance act; pick and inspect tell what a point or frame is; units and events show the world; breakpoints, step, stack, variables and eval debug; profile_start/profile_stop measure. check, fmt, build and test work on the package without a session; wowlua_docs and wowlua_reference read wowlua's docs and the standard library.",
             }),
             "ping" => json!({}),
             "tools/list" => json!({ "tools": tools() }),
