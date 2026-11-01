@@ -1093,3 +1093,39 @@ fn reads_the_global_strings() {
         assert!(in_game > 10_000, "{product}: {in_game}");
     }
 }
+
+/// Each product's light (decision T555): Goldshire's at noon and at
+/// midnight, as each client's own tables give it (Classic Era's night is
+/// a bright blue, MoP Classic's direct light dim beside its ambient).
+#[test]
+fn reads_the_light_of_a_place_and_time() {
+    let Some(root) = install() else {
+        eprintln!("no WoW installation: skipped");
+        return;
+    };
+    let storage = FsStorage { root: root.clone() };
+    for (product, version) in Casc::products(&storage) {
+        let casc = Casc::open(Box::new(FsStorage { root: root.clone() }), &product).expect("opens");
+        let lights = wowlua_casc::light::Lights::read(&casc).expect("the light tables");
+        let at = [-9465.0, 62.0, 56.0];
+        let kind = wowlua_casc::light::Kind::Clear;
+        let noon = lights.at(0, at, 1440.0, kind).expect("noon");
+        let night = lights.at(0, at, 0.0, kind).expect("midnight");
+        let sum = |c: [f32; 3]| c.iter().sum::<f32>();
+        eprintln!(
+            "{product} {version}: noon direct {:?} ambient {:?} sky top {:?} fog {:?} {}..{} skyboxes {:?}; midnight direct {:?}",
+            noon.direct,
+            noon.ambient,
+            noon.sky[0],
+            noon.fog,
+            noon.fog_start,
+            noon.fog_end,
+            noon.skyboxes,
+            night.direct
+        );
+        assert!(sum(noon.direct) + sum(noon.ambient) > 0.5, "{product}");
+        assert_ne!(noon.direct, night.direct, "{product}");
+        assert!(noon.fog_end > noon.fog_start, "{product}");
+        assert!((100.0..2000.0).contains(&noon.fog_end), "{product}");
+    }
+}
