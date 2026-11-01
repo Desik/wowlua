@@ -3975,6 +3975,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "wowlua-api",
+ "wowlua-casc",
  "wowlua-driver",
  "wowlua-engine",
  "wowlua-flavors",

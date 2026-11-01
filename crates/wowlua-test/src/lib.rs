@@ -10,6 +10,9 @@ mod blizzard;
 #[cfg(feature = "camera")]
 pub mod camera;
 pub mod coverage;
+/// Blizzard's UI code read from the WoW installation (decision T553).
+#[cfg(feature = "native")]
+pub mod installed;
 mod natives;
 pub mod profile;
 pub mod reports;
