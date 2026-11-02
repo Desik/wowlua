@@ -210,6 +210,9 @@ pub(crate) struct Models {
     )>,
     shader: Option<wgpu::ShaderModule>,
     sampler: Option<wgpu::Sampler>,
+    /// What stands in for the sun's shadow maps where there are none (a
+    /// model frame's, the sun's own view: T564), and how they compare.
+    no_maps: Option<(wgpu::TextureView, wgpu::Sampler)>,
     groups: HashMap<[usize; 3], wgpu::BindGroup>,
     /// Composited textures by their layers.
     composites: HashMap<String, usize>,
@@ -250,6 +253,20 @@ pub(crate) struct WorldModels {
 
 /// The pipeline key's blend for a faded actor's depth alone (T562).
 const DEPTH_ONLY: u16 = u16::MAX;
+/// The model shader's globals' floats: its matrices and light (44), then
+/// the sun's shadow maps' (T564: four matrices, their ends, texels and
+/// settings, the eye's look and place).
+const GLOBALS: usize = 44 + SUN_LOOKUP;
+/// The sun's shadow maps' part of the globals.
+pub(crate) const SUN_LOOKUP: usize = 64 + 5 * 4;
+
+/// The sun's shadow maps as the world's units take them (decision T564):
+/// the globals' part (as `SUN_LOOKUP` says) and the maps.
+pub(crate) struct SunLookup {
+    pub(crate) uniform: [f32; SUN_LOOKUP],
+    pub(crate) maps: wgpu::TextureView,
+}
+
 /// The pipeline key's blend for the depth the sun sees (its shadow maps,
 /// T564).
 const SUN_DEPTH: u16 = u16::MAX - 1;
@@ -436,17 +453,63 @@ impl Renderer {
         let d = &self.device;
         let globals = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("model globals"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                // (the sun's shadow maps the world's units take: T564)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
         });
+        let no_maps = d
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("model no sun maps"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+        let compare = d.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("model sun maps"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        self.models.no_maps = Some((no_maps, compare));
         let tex = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("model texture"),
             entries: &[
@@ -1104,6 +1167,7 @@ impl Renderer {
         view: Mat4,
         proj: Mat4,
         light: ([f32; 3], [f32; 3], [f32; 3]),
+        sun: Option<SunLookup>,
         assets: &mut dyn Assets,
     ) -> Option<WorldModels> {
         // Each unit posed apart, a farther one less often: within 12
@@ -1202,27 +1266,13 @@ impl Renderer {
         }
         let view_proj = m2::mul(&proj, &view);
         let (dir, ambient, diffuse) = light;
-        let mut globals = Vec::with_capacity(44);
+        let mut globals = Vec::with_capacity(GLOBALS);
         globals.extend_from_slice(&view_proj);
         globals.extend_from_slice(&view);
         globals.extend_from_slice(&[dir[0], dir[1], dir[2], 0.0]);
         globals.extend_from_slice(&[ambient[0], ambient[1], ambient[2], 1.0]);
         globals.extend_from_slice(&[diffuse[0], diffuse[1], diffuse[2], 1.0]);
-        let ubuf = crate::buffer_with(
-            &self.device,
-            &self.queue,
-            "world model globals",
-            bytemuck::cast_slice(&globals),
-            wgpu::BufferUsages::UNIFORM,
-        );
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.models.layout.as_ref().unwrap().0,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: ubuf.as_entire_binding(),
-            }],
-        });
+        let group = self.model_globals(globals, sun.as_ref());
         let (vertices, indices) = if p.verts.is_empty() {
             (None, None)
         } else {
@@ -1363,24 +1413,47 @@ impl Renderer {
     /// What the world's models are drawn with as the sun sees them (its
     /// shadow maps, decision T564): its matrix.
     pub(crate) fn sun_model_group(&self, view_proj: Mat4) -> wgpu::BindGroup {
-        let mut globals = Vec::with_capacity(44);
+        let mut globals = Vec::with_capacity(GLOBALS);
         globals.extend_from_slice(&view_proj);
         globals.extend_from_slice(&m2::IDENTITY);
         globals.extend_from_slice(&[0.0; 12]);
+        self.model_globals(globals, None)
+    }
+
+    /// The model shader's globals (`globals`: its matrices and light) and
+    /// the sun's shadow maps they take (the world's units, T564; none: no
+    /// maps), bound.
+    fn model_globals(&self, mut globals: Vec<f32>, sun: Option<&SunLookup>) -> wgpu::BindGroup {
+        globals.resize(44, 0.0);
+        match sun {
+            Some(s) => globals.extend_from_slice(&s.uniform),
+            None => globals.resize(GLOBALS, 0.0),
+        }
         let ubuf = crate::buffer_with(
             &self.device,
             &self.queue,
-            "world model sun",
+            "model globals",
             bytemuck::cast_slice(&globals),
             wgpu::BufferUsages::UNIFORM,
         );
+        let (no_maps, compare) = self.models.no_maps.as_ref().expect("the model layouts");
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("world model sun"),
+            label: Some("model globals"),
             layout: &self.models.layout.as_ref().unwrap().0,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: ubuf.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ubuf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(sun.map_or(no_maps, |s| &s.maps)),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(compare),
+                },
+            ],
         })
     }
 
@@ -2004,27 +2077,13 @@ impl Renderer {
         } else {
             ([1.0; 3], [0.0; 3])
         };
-        let mut globals = Vec::with_capacity(44);
+        let mut globals = Vec::with_capacity(GLOBALS);
         globals.extend_from_slice(&view_proj);
         globals.extend_from_slice(&view);
         globals.extend_from_slice(&[l.direction[0], l.direction[1], l.direction[2], 0.0]);
         globals.extend_from_slice(&[ambient[0], ambient[1], ambient[2], 1.0]);
         globals.extend_from_slice(&[diffuse[0], diffuse[1], diffuse[2], 1.0]);
-        let ubuf = crate::buffer_with(
-            &self.device,
-            &self.queue,
-            "model globals",
-            bytemuck::cast_slice(&globals),
-            wgpu::BufferUsages::UNIFORM,
-        );
-        let ugroup = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.models.layout.as_ref().unwrap().0,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: ubuf.as_entire_binding(),
-            }],
-        });
+        let ugroup = self.model_globals(globals, None);
         let vbuf = crate::buffer_with(
             &self.device,
             &self.queue,

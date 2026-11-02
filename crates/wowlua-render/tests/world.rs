@@ -543,16 +543,23 @@ mock.advanceFrames(2, 1000 / 60)",
         let image = r
             .render_blocking(&scene, 1.0, None, &mut assets)
             .expect("drawn");
+        // (a few more frames while the player's model is still being read)
+        let wanted = if flavor == "camelot" { (0, 3) } else { (1, 0) };
+        let mut image = image;
+        for _ in 0..10 {
+            if (r.world_blobs(), r.world_sun_maps()) == wanted {
+                break;
+            }
+            image = r
+                .render_blocking(&scene, 1.0, None, &mut assets)
+                .expect("drawn");
+        }
         eprintln!(
             "{folder}: {} blob shadows, {} sun maps",
             r.world_blobs(),
             r.world_sun_maps()
         );
-        if flavor == "camelot" {
-            assert_eq!((r.world_blobs(), r.world_sun_maps()), (0, 3));
-        } else {
-            assert_eq!((r.world_blobs(), r.world_sun_maps()), (1, 0));
-        }
+        assert_eq!((r.world_blobs(), r.world_sun_maps()), wanted, "{folder}");
         if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
             let png = wowlua_render::encode_png(&image).expect("encoded");
             std::fs::write(

@@ -2025,6 +2025,7 @@ impl Renderer {
                     crate::model::look_at([0.0; 3], l, u),
                     crate::model::perspective(fov_y, aspect, NEAR, SKY_FAR),
                     ([0.0, 0.0, -1.0], [1.0; 3], [0.0; 3]),
+                    None,
                     assets,
                 )
             })
@@ -2049,6 +2050,32 @@ impl Renderer {
                     far: w.far as f32,
                 };
                 let sun = globals.sun;
+                // (the sun's shadow maps the units take: T564)
+                let lookup = self
+                    .world
+                    .setup
+                    .as_ref()
+                    .and_then(|s| s.maps.as_ref())
+                    .map(|m| {
+                        let mut uniform = [0.0f32; crate::model::SUN_LOOKUP];
+                        let parts: [&[f32]; 6] = [
+                            globals.shadow_mats.as_flattened(),
+                            &globals.shadow_ends,
+                            &globals.shadow_texels,
+                            &globals.shadow,
+                            &globals.look,
+                            &globals.eye,
+                        ];
+                        let mut at = 0;
+                        for p in parts {
+                            uniform[at..at + p.len()].copy_from_slice(p);
+                            at += p.len();
+                        }
+                        crate::model::SunLookup {
+                            uniform,
+                            maps: m.array.clone(),
+                        }
+                    });
                 self.world_models(
                     &actors,
                     &camera,
@@ -2056,6 +2083,7 @@ impl Renderer {
                     globals.view,
                     globals.proj,
                     ([-sun[0], -sun[1], -sun[2]], ambient, direct),
+                    lookup,
                     assets,
                 )
             })
