@@ -51,6 +51,7 @@ pub mod framescript;
 pub mod gamedata;
 pub mod globalsinfo;
 pub mod gossip;
+pub mod graphics;
 pub mod guild;
 pub mod healcalc;
 pub mod input;
@@ -783,6 +784,8 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
         .collect();
     engine_mut(vm).world.cvar_defaults = cvars.clone();
     engine_mut(vm).world.cvars.extend(cvars);
+    // The Graphics settings' CVars as their levels are (decision T561).
+    graphics::settle(vm);
     // Undocumented C functions with behaviour.
     let create_frame = vm.native("CreateFrame", widgets::create_frame);
     vm.set_global("CreateFrame", create_frame);

@@ -1120,3 +1120,18 @@ clear day and watch the trees and bushes about it for ten seconds.
 
    wowlua: they stand still (their models have no animation; a sway in
    the game would be the shaders' wind). Seen: (to do)
+
+## The Graphics settings (decision T561)
+
+What each Graphics setting's levels set, recorded on WoW Forever (and,
+later, each Classic client). It changes your graphics settings for about
+a minute and puts every one back at the end.
+
+1. **Install StdTest**: in `tests/ingame`, `wowlua install --client _forever_`,
+   then `/reload` in game.
+2. **Record**: `/stdtest engine graphics`, wait for "engine graphics: … lines",
+   then `/reload`.
+3. **Take it in**: `cargo xtask ingest`.
+
+   wowlua: `crates/wowlua-engine/data/camelot-graphics.txt` has only the
+   shadow levels seen in Config.wtf files (unverified). Recorded: (to do)

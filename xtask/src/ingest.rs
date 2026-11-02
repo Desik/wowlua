@@ -1657,6 +1657,31 @@ pub fn run(root: &Path, saved: &Path, gate: &mut Gate) -> Result<()> {
         write_file(&path, &text)?;
     }
 
+    // The Graphics settings (`/stdtest engine graphics`, decision T561):
+    // what each setting's levels and the overall quality set, as engine
+    // data.
+    if let Ok(list) = state.get::<mlua::Table>("engineGraphics")
+        && gate.take(&stamps, "graphics", &version).is_some()
+    {
+        let lines: Vec<String> = list
+            .sequence_values::<String>()
+            .collect::<Result<_, _>>()
+            .map_err(|e| anyhow!("{e}"))?;
+        let mut text = format!(
+            "# WoW Forever {version}: what the Graphics settings set (decision T561;\n\
+             # `/stdtest engine graphics`, cargo xtask ingest): `setting=level` then\n\
+             # the CVars it set.\n"
+        );
+        for l in lines.iter().filter(|l| !l.starts_with("start ")) {
+            text.push_str(l);
+            text.push('\n');
+        }
+        write_file(
+            &root.join("crates/wowlua-engine/data/camelot-graphics.txt"),
+            &text,
+        )?;
+    }
+
     // The input recording, in order.
     if let Ok(input) = state.get::<mlua::Table>("engineInput")
         && gate.take(&stamps, "input", &version).is_some()

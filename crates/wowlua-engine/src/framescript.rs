@@ -415,6 +415,8 @@ pub(crate) fn set_cvar_text(vm: &mut Vm, name: &str, text: String, tell: bool) -
     let n = vm.str(&name);
     let v = vm.str(&text);
     widgets::fire_event(vm, "CVAR_UPDATE", &[n, v]);
+    // A Graphics setting sets what it stands for (decision T561).
+    crate::graphics::follow(vm, &name, &text);
     // The UI scale's CVars scale UIParent (decision T482; unverified:
     // whether `CVAR_UPDATE` comes before `UI_SCALE_CHANGED`).
     if name.eq_ignore_ascii_case("uiScale") || name.eq_ignore_ascii_case("useUiScale") {
