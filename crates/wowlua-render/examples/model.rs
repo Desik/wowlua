@@ -60,6 +60,8 @@ fn main() {
                 alpha: 1.0,
                 animation: arg(6, 0.0) as u32,
                 variation: 0,
+                placement: None,
+                phase: 0,
             }],
             camera: ModelCamera::Frame {
                 portrait_zoom: arg(4, 0.0),

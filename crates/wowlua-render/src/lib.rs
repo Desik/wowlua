@@ -345,6 +345,12 @@ const PIPELINE_OPAQUE: usize = 3;
 const PIPELINE_PREMUL: usize = 4;
 
 impl Renderer {
+    /// The 3D world's props posed one by one in its last frame: those that
+    /// move, near the eye (decision T558).
+    pub fn moving_props(&self) -> usize {
+        self.world.moving
+    }
+
     /// A renderer on the first adapter there is (a software one when there
     /// is no GPU).
     pub async fn new() -> Result<Renderer, String> {

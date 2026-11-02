@@ -543,7 +543,9 @@ fog come from your installation's light tables at the realm's time of day,
 so a profile's `"time": "21:30"` or `mock.setTimeOfDay(21, 30)` shows the
 evening. The zone's sky models (clouds, stars, a storm) show behind it,
 and its lakes, rivers, sea and lava are drawn with their animated surfaces,
-the ground under the water showing through.
+the ground under the water showing through. Props that move in the game
+(banners, lanterns, mills, birds, fountains) play their animations near
+you.
 Each game version has its own light, as its client does.
 
 With the world on, units are named as in the game. A unit's name floats

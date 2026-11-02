@@ -111,6 +111,9 @@ const SUN: [f32; 4] = [0.35, 0.25, 0.9, 0.45];
 const FOG_START: f32 = 0.55;
 /// The nearest the camera draws (yards).
 const NEAR: f32 = 0.2;
+/// How far from the eye props move (yards; T558: nearer ones posed one by
+/// one, farther ones as they stand).
+const PROP_MOTION: f64 = 80.0;
 /// How far the sky's models reach about the eye (yards).
 const SKY_FAR: f32 = 100_000.0;
 
@@ -168,6 +171,10 @@ struct Setup {
 #[derive(Default)]
 pub(crate) struct World {
     setup: Option<Setup>,
+    /// Whether each prop model moves as it stands (T558).
+    moves: HashMap<u32, bool>,
+    /// The props posed one by one in the last frame (T558).
+    pub(crate) moving: usize,
     liquid_setup: Option<LiquidSetup>,
     tiles: HashMap<(u32, i32, i32), Option<GpuTile>>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
@@ -1082,7 +1089,25 @@ impl Renderer {
         }
         let mut doodad_ranges: Vec<(u32, u32, u32)> = Vec::new();
         let mut matrices: Vec<[f32; 16]> = placed.iter().map(|(_, m)| *m).collect();
-        for (file, ms) in by_model {
+        // The props that move, near the eye, posed one by one with the
+        // units, each in its own phase (T558); the others as they stand.
+        let mut moving: Vec<(u32, [f32; 16])> = Vec::new();
+        for (file, mut ms) in by_model {
+            if self.prop_moves(file, assets) {
+                let near = |m: &[f32; 16]| {
+                    let d = [
+                        f64::from(m[12]) - w.eye[0],
+                        f64::from(m[13]) - w.eye[1],
+                        f64::from(m[14]) - w.eye[2],
+                    ];
+                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt() <= PROP_MOTION
+                };
+                moving.extend(ms.iter().filter(|m| near(m)).map(|m| (file, *m)));
+                ms.retain(|m| !near(m));
+                if ms.is_empty() {
+                    continue;
+                }
+            }
             self.world_doodad(file, assets);
             if !matches!(self.world.doodads.get(&file), Some(Some(_))) {
                 continue;
@@ -1227,8 +1252,37 @@ impl Renderer {
                 alpha: 1.0,
                 animation: u.animation,
                 variation: 0,
+                placement: None,
+                phase: 0,
             })
             .collect();
+        // (and the moving props the camera can see, T558: each in its own
+        // phase, by where it stands)
+        let mut actors = actors;
+        self.world.moving = 0;
+        for (file, m) in moving {
+            if !seen([f64::from(m[12]), f64::from(m[13]), f64::from(m[14])]) {
+                continue;
+            }
+            let phase = (m[12].to_bits().wrapping_mul(73_856_093)
+                ^ m[13].to_bits().wrapping_mul(19_349_663))
+                % 600_000;
+            self.world.moving += 1;
+            actors.push(wowlua_engine::scene::Actor {
+                source: wowlua_engine::scene::ModelSource::File(file),
+                position: [m[12], m[13], m[14]],
+                yaw: 0.0,
+                pitch: 0.0,
+                roll: 0.0,
+                fixed_axes: false,
+                scale: 1.0,
+                alpha: 1.0,
+                animation: 0,
+                variation: 0,
+                placement: Some(m),
+                phase,
+            });
+        }
         // The light's sky models about the eye (decision T556): unlit,
         // each by its weight, drawn behind the world; posed before the
         // units, whose poses are kept for the next frame.
@@ -1248,6 +1302,8 @@ impl Renderer {
                         alpha: weight,
                         animation: 0,
                         variation: 0,
+                        placement: None,
+                        phase: 0,
                     })
                     .collect()
             })
@@ -1992,6 +2048,19 @@ fn matrix_from(f: impl Fn([f32; 3]) -> [f64; 3]) -> [f32; 16] {
 impl Renderer {
     /// A doodad model on the GPU, read and posed on first use: its
     /// standing pose (the first frame of "Stand"), its own textures.
+    /// Whether a prop's model moves as it stands (T558), read once.
+    fn prop_moves(&mut self, file: u32, assets: &mut dyn Assets) -> bool {
+        if let Some(&m) = self.world.moves.get(&file) {
+            return m;
+        }
+        let m = assets
+            .file(file)
+            .and_then(|b| wowlua_casc::m2::Model::parse(&b))
+            .is_some_and(|m| m.moves());
+        self.world.moves.insert(file, m);
+        m
+    }
+
     fn world_doodad(&mut self, file: u32, assets: &mut dyn Assets) {
         if self.world.doodads.contains_key(&file) {
             return;

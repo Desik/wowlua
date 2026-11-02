@@ -784,6 +784,8 @@ impl Renderer {
                 alpha: 1.0,
                 animation: 0,
                 variation: 0,
+                placement: None,
+                phase: 0,
             }],
             camera: ModelCamera::Frame {
                 portrait_zoom: 1.0,
@@ -864,12 +866,19 @@ impl Renderer {
                 continue;
             };
             let scale = actor.scale * display.scale;
-            let mut world = m2::translation(actor.position);
-            world = m2::mul(
-                &world,
-                &orientation(actor.yaw, actor.pitch, actor.roll, actor.fixed_axes),
-            );
-            world = m2::mul(&world, &m2::scaling([scale; 3]));
+            let world = match actor.placement {
+                // (a prop's place on its map, T558)
+                Some(m) => m2::mul(&m, &m2::scaling([display.scale; 3])),
+                None => {
+                    let mut world = m2::translation(actor.position);
+                    world = m2::mul(
+                        &world,
+                        &orientation(actor.yaw, actor.pitch, actor.roll, actor.fixed_axes),
+                    );
+                    m2::mul(&world, &m2::scaling([scale; 3]))
+                }
+            };
+            let ms = ms.wrapping_add(actor.phase);
             // The body's attachment points, for parts there.
             let mut body_points: Option<Body> = None;
             for part in &display.parts {

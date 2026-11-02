@@ -2466,6 +2466,7 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - The dev tools (0.12.1)
 - The Camelot update (decision T553)
 - The Classic clients' data (decision T554)
+- The world's motion (decision T558)
 
 ## In-game regressions
 

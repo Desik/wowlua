@@ -189,6 +189,12 @@ pub struct Actor {
     /// The animation (`AnimationData` ID, 0 standing) and its variation.
     pub animation: u32,
     pub variation: u32,
+    /// Its place as a matrix (columns), in place of the position, turns and
+    /// scale: a prop's from its map (decision T558).
+    pub placement: Option<[f32; 16]>,
+    /// How far into its animations it is ahead of the clock (ms): a prop's
+    /// own phase (T558).
+    pub phase: u32,
 }
 
 /// How a model is looked at.
@@ -1591,6 +1597,8 @@ fn actor_of(vm: &mut Vm, id: WidgetId, frame: bool) -> Option<Actor> {
         alpha,
         animation: num(vm, anim.first(), 0.0).max(0.0) as u32,
         variation: num(vm, anim.get(1), 0.0).max(0.0) as u32,
+        placement: None,
+        phase: 0,
     })
 }
 
