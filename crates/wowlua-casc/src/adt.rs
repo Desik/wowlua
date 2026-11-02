@@ -108,6 +108,13 @@ pub struct Chunk {
     pub effects: [u8; 64],
     /// The squares that grow none: bit `row * 8 + column`.
     pub no_effect: u64,
+    /// Its baked shadow (`MCSH`, decision T563): 64 rows from the north,
+    /// each a bit a column from the west, set where shadowed; none where
+    /// the build has none (WoW Forever's).
+    pub shadow: Option<Vec<u64>>,
+    /// Its header's flags (`0x8000`: its maps whole, their last row and
+    /// column not copied from the one before).
+    pub flags: u32,
 }
 
 /// A texture layer: its texture (an index into the tile's), and how much
@@ -204,6 +211,8 @@ pub fn read(root: &[u8], tex: Option<&[u8]>, big_alpha: bool) -> Option<Tile> {
             // (2 bits a square, from the low bits; then a bit a square)
             effects: std::array::from_fn(|i| (body[64 + i / 4] >> ((i % 4) * 2)) & 3),
             no_effect: u64::from_le_bytes(body[80..88].try_into().unwrap()),
+            shadow: None,
+            flags,
         };
         for (sub, b) in subchunks(body, 128) {
             match &sub {
@@ -321,6 +330,11 @@ fn read_textures(tile: &mut Tile, tex: &[u8], big_alpha: bool) {
                 let subs = subchunks(body, 0);
                 let mcly = subs.iter().find(|(t, _)| t == b"MCLY").map(|(_, b)| *b);
                 let mcal = subs.iter().find(|(t, _)| t == b"MCAL").map(|(_, b)| *b);
+                if let Some((_, b)) = subs.iter().find(|(t, _)| t == b"MCSH")
+                    && b.len() >= 512
+                {
+                    chunk.shadow = Some(shadow_map(b, chunk.flags & 0x8000 == 0));
+                }
                 let Some(mcly) = mcly else {
                     continue;
                 };
@@ -343,6 +357,21 @@ fn read_textures(tile: &mut Tile, tex: &[u8], big_alpha: bool) {
             _ => {}
         }
     }
+}
+
+/// A baked shadow's 64 rows of 64 bits; the last row and column copied
+/// from the ones before where the chunk's maps are not whole (`fix`).
+fn shadow_map(b: &[u8], fix: bool) -> Vec<u64> {
+    let mut rows: Vec<u64> = (0..64)
+        .map(|r| u64::from_le_bytes(b[r * 8..r * 8 + 8].try_into().unwrap()))
+        .collect();
+    if fix {
+        for row in &mut rows {
+            *row = (*row & !(1 << 63)) | ((*row >> 62 & 1) << 63);
+        }
+        rows[63] = rows[62];
+    }
+    rows
 }
 
 /// A layer's blend, 64 × 64 bytes: run-length coded (`compressed`), 8 bits
@@ -526,6 +555,31 @@ mod tests {
         let half = alpha_map(&[0xF1; 2048], false, false);
         assert_eq!(&half[..2], &[17, 255]);
         assert_eq!(low_res_holes(1), 0b11 | 0b11 << 8);
+    }
+
+    #[test]
+    fn a_chunk_s_baked_shadow() {
+        let mut mcsh = vec![0u8; 512];
+        // (row 0: columns 0 and 62; row 62: column 1)
+        mcsh[0] = 1;
+        mcsh[7] = 0x40;
+        mcsh[62 * 8] = 2;
+        let mut body = vec![0u8; 0];
+        body.extend(chunk(b"MCLY", &[0; 16]));
+        body.extend(chunk(b"MCSH", &mcsh));
+        let tex = chunk(b"MCNK", &body);
+        let tile = read(&one_chunk(), Some(&tex), true).unwrap();
+        let rows = tile.chunks[0].shadow.as_ref().unwrap();
+        // (the maps not whole: the last column and row copied)
+        assert_eq!(rows[0], 1 | 1 << 62 | 1 << 63);
+        assert_eq!(rows[63], 2);
+        let whole = shadow_map(&mcsh, false);
+        assert_eq!(whole[0], 1 | 1 << 62);
+        assert_eq!(whole[63], 0);
+        assert_eq!(
+            read(&one_chunk(), None, true).unwrap().chunks[0].shadow,
+            None
+        );
     }
 
     #[test]

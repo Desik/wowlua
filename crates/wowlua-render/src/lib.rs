@@ -368,6 +368,12 @@ impl Renderer {
         self.world.clutter
     }
 
+    /// The units' blob shadows drawn in the 3D world's last frame
+    /// (decision T563).
+    pub fn world_blobs(&self) -> usize {
+        self.world.blobs
+    }
+
     /// A renderer on the first adapter there is (a software one when there
     /// is no GPU).
     pub async fn new() -> Result<Renderer, String> {

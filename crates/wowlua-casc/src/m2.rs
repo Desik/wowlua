@@ -317,6 +317,9 @@ pub struct Model {
     pub texture_transform_combos: Vec<u16>,
     pub bounds: [Vec3; 2],
     pub radius: f32,
+    /// Its body's box (a character's: as wide as its collision, decision
+    /// T563), not its animations' reach as `bounds`.
+    pub collision: [Vec3; 2],
     pub attachments: Vec<Attachment>,
     /// Attachment IDs to their index.
     pub attachment_of: Vec<i16>,
@@ -813,6 +816,7 @@ impl Model {
         m.texture_transform_combos = r.u16s(152);
         m.bounds = [r.vec3(160)?, r.vec3(172)?];
         m.radius = r.f32(184)?;
+        m.collision = [r.vec3(188)?, r.vec3(200)?];
         m.attachments = r.list(240, 40, |r, o| {
             Some(Attachment {
                 id: r.u32(o)?,

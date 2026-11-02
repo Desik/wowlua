@@ -54,6 +54,9 @@ pub struct Sky {
     pub river_far: [f32; 3],
     pub water_alpha: [f32; 4],
     pub glow: f32,
+    /// How much of the light a baked shadow takes (0 to 1, decision
+    /// T563): `ShadowOpacity`, a gray (unverified).
+    pub shadow: f32,
     /// The sky models to draw: file, `LightSkybox.Flags`, weight.
     pub skyboxes: Vec<(u32, u32, f32)>,
 }
@@ -142,6 +145,7 @@ impl Sky {
         self.fog_start += (other.fog_start - self.fog_start) * w;
         self.fog_end += (other.fog_end - self.fog_end) * w;
         self.glow += (other.glow - self.glow) * w;
+        self.shadow += (other.shadow - self.shadow) * w;
         if w > 0.0 && !other.skyboxes.is_empty() {
             for s in &mut self.skyboxes {
                 s.2 *= 1.0 - w;
@@ -273,6 +277,10 @@ impl Lights {
                 river_far: c("RiverFarColor"),
                 water_alpha,
                 glow,
+                shadow: {
+                    let s = c("ShadowOpacity");
+                    (s[0] + s[1] + s[2]) / 3.0
+                },
                 skyboxes: p
                     .skybox
                     .map(|(f, fl)| vec![(f, fl, 1.0)])
