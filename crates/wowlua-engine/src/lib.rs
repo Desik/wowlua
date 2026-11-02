@@ -857,6 +857,9 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// A flavor's recorded `Constants` table: flavor, table, its fields.
+type RecordedConstants = (&'static str, &'static str, &'static [(&'static str, f64)]);
+
 /// `Constants` tables as `/stdtest engine` recorded them (Forever 70425)
 /// where the installed build's documentation names them otherwise (70707:
 /// `LevelConstsExposed_Camelot`, its resurrection sickness from level 11),
@@ -864,7 +867,7 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
 /// (`MainMenuBarMicroButtons.lua`, `MainMenuBarMicroButtonsOverrides.lua`):
 /// flavor, table, fields. Kept until the battery is recorded again
 /// (decision T566; tests/ingame/PROBES.md, "The Camelot update").
-const RECORDED_CONSTANTS: &[(&str, &str, &[(&str, f64)])] = &[(
+const RECORDED_CONSTANTS: &[RecordedConstants] = &[(
     "camelot",
     "LevelConstsExposed",
     &[

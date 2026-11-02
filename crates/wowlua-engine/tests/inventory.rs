@@ -91,6 +91,12 @@ fn shown(vm: &mut Vm, name: &str) -> String {
 /// down.
 const MAX_SCALARS_DIFFERENT: usize = 1;
 
+/// What the installed build's UI code no longer defines since the
+/// inventory was taken (Forever 70425), until it is taken again
+/// (tests/ingame/PROBES.md, "The Camelot update"): 70707's smart
+/// navigation dropped a function.
+const NEWER_BUILD: &[&str] = &["SmartNavigation_SetReturnFrameFocusButton"];
+
 #[test]
 fn every_function_of_the_client_exists_with_its_kind() {
     let Some(mut vm) = client() else {
@@ -110,6 +116,9 @@ fn every_function_of_the_client_exists_with_its_kind() {
         };
         total += 1;
         let ours = kind(&mut vm, name);
+        if ours == "absent" && NEWER_BUILD.contains(&name) {
+            continue;
+        }
         if ours == "absent" {
             missing.push(format!("{name} ({expected})"));
         } else if ours != expected {

@@ -24,7 +24,7 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 
 ### Fixed
 
-- With WoW Forever's latest update (1.60.1.70707) installed, `test.blizzard-ui` loads Blizzard's UI without errors again, and spell descriptions read from your installation show their durations again.
+- With WoW Forever's latest update (1.60.1.70707) installed, `test.blizzard-ui` loads Blizzard's UI again, and spell descriptions read from your installation show their durations again.
 - `wowlua publish` with a missing or wrong token now shows the registry's reason on Windows, not a connection error.
 
 ## 0.13.8 (2026-11-01)
