@@ -414,6 +414,13 @@ impl Assets for ClientAssets {
         lights.at(map, at, day_time, wowlua_casc::light::Kind::Clear)
     }
 
+    fn clutter(&mut self) -> Option<Arc<wowlua_casc::clutter::Clutter>> {
+        let casc = self.casc.as_ref()?;
+        let lib = library_of(casc);
+        let mut lib = lib.lock().ok()?;
+        lib.clutter(casc)
+    }
+
     fn liquids(&mut self) -> Option<Arc<wowlua_casc::liquid::Liquids>> {
         let casc = self.casc.as_ref()?;
         let lib = library_of(casc);

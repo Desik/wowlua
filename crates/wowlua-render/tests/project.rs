@@ -21,6 +21,8 @@ fn north() -> WorldView {
         units: Vec::new(),
         time: 0.0,
         day_time: 1440.0,
+        clutter_dist: 0.0,
+        clutter_density: 0.0,
     }
 }
 

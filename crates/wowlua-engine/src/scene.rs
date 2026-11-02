@@ -306,6 +306,10 @@ pub struct WorldView {
     /// The realm's time of day in half-minutes (0 to 2880), as the light
     /// tables key it (decision T555).
     pub day_time: f64,
+    /// The ground's clutter (decision T560): how far it grows (yards,
+    /// `groundEffectDist`) and how dense (`groundEffectDensity`).
+    pub clutter_dist: f64,
+    pub clutter_density: f64,
 }
 
 /// A unit as the 3D world shows it (decision T526): its model, where it
@@ -402,6 +406,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     let detail = setting(vm, "terrainLodDist", 500.0).min(far);
     let objects = setting(vm, "horizonStart", 1900.0).min(far);
     let cull = setting(vm, "lodObjectCullSize", 18.0);
+    let clutter_dist = setting(vm, "groundEffectDist", 70.0).clamp(0.0, far);
+    let clutter_density = setting(vm, "groundEffectDensity", 16.0).max(0.0);
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -424,6 +430,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         units,
         time,
         day_time,
+        clutter_dist,
+        clutter_density,
     })
 }
 

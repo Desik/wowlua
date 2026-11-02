@@ -399,6 +399,53 @@ mock.advanceFrames(2, 1000 / 60)",
     }
 }
 
+/// The ground's clutter (decision T560): Northshire's grass and flowers
+/// about the abbey, within `groundEffectDist`; none with it 0.
+#[test]
+fn the_ground_has_clutter() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let scene = wowlua_engine::scene::build(&mut vm);
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    let start = std::time::Instant::now();
+    let image = r
+        .render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    eprintln!(
+        "{} clutter models placed; a frame took {:?}",
+        r.world_clutter(),
+        start.elapsed()
+    );
+    assert!(r.world_clutter() > 100);
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let png = wowlua_render::encode_png(&image).expect("encoded");
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("northshire-clutter.png"),
+            png,
+        )
+        .expect("written");
+    }
+    run(&mut vm, "C_CVar.SetCVar('groundEffectDist', '0')");
+    let scene = wowlua_engine::scene::build(&mut vm);
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    assert_eq!(r.world_clutter(), 0);
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]
