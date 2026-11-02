@@ -869,8 +869,8 @@ impl Model {
 
     /// The model's camera of `kind` (0 the portrait's).
     /// Whether anything of it moves as it stands (decision T558): a bone
-    /// keyed more than once in its standing sequence or a global loop, or
-    /// a texture's motion.
+    /// keyed more than once in its standing sequence or a global loop, a
+    /// texture's motion, or particles or ribbons (T559).
     pub fn moves(&self) -> bool {
         let stand = self.sequence_of.get(&0).copied().unwrap_or(0);
         fn keyed<T>(t: &Track<T>, stand: usize) -> bool {
@@ -885,6 +885,8 @@ impl Model {
         self.bones.iter().any(|b| {
             keyed(&b.translation, stand) || keyed(&b.rotation, stand) || keyed(&b.scale, stand)
         }) || !self.texture_transforms.is_empty()
+            || !self.particles.is_empty()
+            || !self.ribbons.is_empty()
     }
 
     pub fn camera(&self, kind: i32) -> Option<&Camera> {
