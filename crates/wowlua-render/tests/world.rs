@@ -509,11 +509,13 @@ mock.advanceFrames(2, 1000 / 60)",
     assert_eq!(shots.len(), 4);
 }
 
-/// Shadows (decision T563): a blob under each unit on every client, and
-/// on the Classic clients the ground's baked shadows (WoW Forever's data
-/// has none).
+/// Shadows by the game's settings: on the Classic clients (their Shadow
+/// Quality's levels not recorded: `shadowMode` 0) a blob under each unit
+/// and the ground's baked shadows (decision T563); on WoW Forever (its
+/// default, High: `shadowMode` 3, three maps) the sun's shadow maps
+/// (T564).
 #[test]
-fn the_units_have_blob_shadows() {
+fn the_world_has_shadows() {
     for (folder, flavor) in [("_forever_", "camelot"), ("_classic_era_", "vanilla")] {
         let Some((mut vm, casc)) = session_and_casc_of(folder, flavor) else {
             eprintln!("no {folder} client: skipped");
@@ -541,8 +543,23 @@ mock.advanceFrames(2, 1000 / 60)",
         let image = r
             .render_blocking(&scene, 1.0, None, &mut assets)
             .expect("drawn");
-        eprintln!("{folder}: {} blob shadows", r.world_blobs());
-        assert!(r.world_blobs() >= 1, "{folder}");
+        // (a few more frames while the player's model is still being read)
+        let wanted = if flavor == "camelot" { (0, 3) } else { (1, 0) };
+        let mut image = image;
+        for _ in 0..10 {
+            if (r.world_blobs(), r.world_sun_maps()) == wanted {
+                break;
+            }
+            image = r
+                .render_blocking(&scene, 1.0, None, &mut assets)
+                .expect("drawn");
+        }
+        eprintln!(
+            "{folder}: {} blob shadows, {} sun maps",
+            r.world_blobs(),
+            r.world_sun_maps()
+        );
+        assert_eq!((r.world_blobs(), r.world_sun_maps()), wanted, "{folder}");
         if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
             let png = wowlua_render::encode_png(&image).expect("encoded");
             std::fs::write(

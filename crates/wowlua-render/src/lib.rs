@@ -374,6 +374,12 @@ impl Renderer {
         self.world.blobs
     }
 
+    /// The sun's shadow maps drawn in the 3D world's last frame (decision
+    /// T564).
+    pub fn world_sun_maps(&self) -> usize {
+        self.world.sun_maps
+    }
+
     /// A renderer on the first adapter there is (a software one when there
     /// is no GPU).
     pub async fn new() -> Result<Renderer, String> {

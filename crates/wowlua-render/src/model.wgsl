@@ -9,9 +9,73 @@ struct Globals {
     light_dir: vec4<f32>,
     ambient: vec4<f32>,
     diffuse: vec4<f32>,
+    // The sun's shadow maps the world's units take (decision T564): as
+    // the world's (`world.wgsl`), and the eye.
+    shadow_mats: array<mat4x4<f32>, 4>,
+    shadow_ends: vec4<f32>,
+    shadow_texels: vec4<f32>,
+    shadow: vec4<f32>,
+    look: vec4<f32>,
+    eye: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
+@group(0) @binding(1) var shadow_map: texture_depth_2d_array;
+@group(0) @binding(2) var shadow_compare: sampler_comparison;
+
+// How much of the sun one shadow map lets reach a point facing `n` (0 to
+// 1): looked up a texel and a half off its surface, against its own
+// shadow; nine looks around it where soft.
+fn sun_through(p: vec3<f32>, n: vec3<f32>, k: i32) -> f32 {
+    let q = g.shadow_mats[k] * vec4<f32>(p + n * g.shadow_texels[k] * 1.5, 1.0);
+    let uv = vec2<f32>(q.x * 0.5 + 0.5, 0.5 - q.y * 0.5);
+    if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || q.z > 1.0 {
+        return 1.0;
+    }
+    if g.shadow.y < 0.5 {
+        return textureSampleCompareLevel(shadow_map, shadow_compare, uv, k, q.z);
+    }
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let at = uv + vec2<f32>(f32(x), f32(y)) * g.shadow.w;
+            sum += textureSampleCompareLevel(shadow_map, shadow_compare, at, k, q.z);
+        }
+    }
+    return sum / 9.0;
+}
+
+// How much of the sun reaches a point (decision T564): through the map
+// its distance ahead of the eye falls in, blended into the next over the
+// last tenth where they blend; fading out over the last map's last tenth.
+fn sunlight(p: vec3<f32>, n: vec3<f32>) -> f32 {
+    let count = i32(g.shadow.x);
+    if count == 0 {
+        return 1.0;
+    }
+    let ahead = dot(p - g.eye.xyz, g.look.xyz);
+    let last = g.shadow_ends[count - 1];
+    if ahead >= last {
+        return 1.0;
+    }
+    var k = 0;
+    for (var i = 0; i < count - 1; i++) {
+        if ahead >= g.shadow_ends[i] {
+            k = i + 1;
+        }
+    }
+    var lit = sun_through(p, n, k);
+    if g.shadow.z > 0.5 && k + 1 < count {
+        let start = select(0.0, g.shadow_ends[max(k - 1, 0)], k > 0);
+        let band = (g.shadow_ends[k] - start) * 0.1;
+        let t = (ahead - (g.shadow_ends[k] - band)) / band;
+        if t > 0.0 {
+            lit = mix(lit, sun_through(p, n, k + 1), t);
+        }
+    }
+    return mix(lit, 1.0, clamp((ahead - last * 0.9) / (last * 0.1), 0.0, 1.0));
+}
+
 @group(1) @binding(0) var tex1: texture_2d<f32>;
 @group(1) @binding(1) var tex2: texture_2d<f32>;
 @group(1) @binding(2) var tex3: texture_2d<f32>;
@@ -56,6 +120,8 @@ struct Out {
     @location(5) @interpolate(flat) flags: u32,
     @location(6) @interpolate(flat) ps: u32,
     @location(7) fade: f32,
+    // Where it is (the world's: its sun's shadows, T564).
+    @location(8) world: vec3<f32>,
 };
 
 // A model file's vertex as it is: posed by its bones (up to four, their
@@ -110,6 +176,7 @@ fn vs_skinned(v: Skinned, @builtin(instance_index) i: u32) -> Out {
 fn shade(v: In) -> Out {
     var o: Out;
     o.pos = g.view_proj * vec4<f32>(v.pos, 1.0);
+    o.world = v.pos;
     o.normal = v.normal;
     o.color = v.color;
     o.flags = v.flags;
@@ -235,7 +302,7 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
     var lit = diffuse;
     if ((i.flags & 1u) == 0u) {
         let n = normalize(i.normal);
-        let d = max(dot(n, -normalize(g.light_dir.xyz)), 0.0);
+        let d = max(dot(n, -normalize(g.light_dir.xyz)), 0.0) * sunlight(i.world, n);
         lit = diffuse * min(g.ambient.rgb + g.diffuse.rgb * d, vec3<f32>(1.0));
     }
     lit = lit + specular;
@@ -243,4 +310,14 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
         opacity = 1.0;
     }
     return vec4<f32>(lit, opacity);
+}
+
+// Its depth alone, as the sun sees it (its shadow maps, decision T564):
+// what an alpha keyed batch keys away casts none.
+@fragment
+fn fs_shadow(i: Out) {
+    let a = textureSample(tex1, samp, i.uv1).a;
+    if ((i.flags >> 8u) & 255u) == 1u && a < 0.502 {
+        discard;
+    }
 }

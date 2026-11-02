@@ -126,18 +126,26 @@ mock.advanceFrames(2, 1000 / 60)",
         view_formats: &[],
     });
     let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    // (the last: the Shadow Quality, decision T564; 0 the blobs alone)
     let configs = [
-        ("none of the new", false, false, true, false),
-        ("+ light and sky", true, false, true, false),
-        ("+ water", true, true, true, false),
-        ("+ moving props, particles", true, true, false, false),
-        ("+ clutter (all)", true, true, false, true),
+        ("none of the new", false, false, true, false, 0),
+        ("+ light and sky", true, false, true, false, 0),
+        ("+ water", true, true, true, false, 0),
+        ("+ moving props, particles", true, true, false, false, 0),
+        ("+ clutter", true, true, false, true, 0),
+        ("+ shadows Fair (1)", true, true, false, true, 1),
+        ("+ shadows High (4, all)", true, true, false, true, 4),
+        ("+ shadows Ultra High (5)", true, true, false, true, 5),
     ];
     let median = |mut v: Vec<Duration>| {
         v.sort();
         v[v.len() / 2]
     };
-    for (name, light, liquids, still, clutter) in configs {
+    for (name, light, liquids, still, clutter, shadows) in configs {
+        run(
+            &mut vm,
+            &format!("C_CVar.SetCVar('graphicsShadowQuality', '{shadows}')"),
+        );
         let mut assets = Switched {
             inner: ClientAssets::new(Some(casc.clone()), &[]),
             light,
@@ -164,12 +172,13 @@ mock.advanceFrames(2, 1000 / 60)",
             total.push(start.elapsed());
         }
         eprintln!(
-            "{name:28} cpu {:>6.2} ms  total {:>6.2} ms  ({} props posed, {} particles, {} clutter)",
+            "{name:28} cpu {:>6.2} ms  total {:>6.2} ms  ({} props posed, {} particles, {} clutter, {} sun maps)",
             median(cpu).as_secs_f64() * 1000.0,
             median(total).as_secs_f64() * 1000.0,
             r.moving_props(),
             r.world_particles(),
             r.world_clutter(),
+            r.world_sun_maps(),
         );
     }
 }

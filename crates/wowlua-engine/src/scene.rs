@@ -310,6 +310,29 @@ pub struct WorldView {
     /// `groundEffectDist`) and how dense (`groundEffectDensity`).
     pub clutter_dist: f64,
     pub clutter_density: f64,
+    /// How its shadows are drawn (decision T564).
+    pub shadows: Shadows,
+}
+
+/// How the 3D world's shadows are drawn (decision T564): the game's
+/// shadow settings, as its Graphics settings' Shadow Quality sets them.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Shadows {
+    /// `shadowMode`: 0 the units' blobs and the ground's baked shadows; 1
+    /// the units' shadows from the sun, near the eye; 2 and the
+    /// buildings' and props'; 3 and up everything's, farther.
+    pub mode: u32,
+    /// `shadowTextureSize`: a map's side (texels).
+    pub size: u32,
+    /// `shadowNumCascades`: how many maps, each farther (1 to 4).
+    pub cascades: u32,
+    /// `shadowSoft`: their edges softened.
+    pub soft: bool,
+    /// `shadowBlendCascades`: the maps blended where they meet.
+    pub blend: bool,
+    /// `entityShadowFadeScale`: how far from the eye (yards) the units'
+    /// shadows reach.
+    pub entity_fade: f64,
 }
 
 /// A unit as the 3D world shows it (decision T526): its model, where it
@@ -408,6 +431,14 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     let cull = setting(vm, "lodObjectCullSize", 18.0);
     let clutter_dist = setting(vm, "groundEffectDist", 70.0).clamp(0.0, far);
     let clutter_density = setting(vm, "groundEffectDensity", 16.0).max(0.0);
+    let shadows = Shadows {
+        mode: setting(vm, "shadowMode", 0.0).clamp(0.0, 4.0) as u32,
+        size: setting(vm, "shadowTextureSize", 1024.0).clamp(256.0, 4096.0) as u32,
+        cascades: setting(vm, "shadowNumCascades", 1.0).clamp(1.0, 4.0) as u32,
+        soft: setting(vm, "shadowSoft", 0.0) != 0.0,
+        blend: setting(vm, "shadowBlendCascades", 0.0) != 0.0,
+        entity_fade: setting(vm, "entityShadowFadeScale", 50.0).max(0.0),
+    };
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -432,6 +463,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         day_time,
         clutter_dist,
         clutter_density,
+        shadows,
     })
 }
 
