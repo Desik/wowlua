@@ -244,6 +244,13 @@ its secret alpha aspect: `GetAlpha` reads back a secret, and keeps doing so
 after a plain alpha is set, whose value still applies (decision T251;
 found in game). What takes the aspect away again is unverified.
 
+A widget shown or hidden from a secret (`SetShown(secret)`, which only
+secure code may pass) follows the value the secret hides: a secret false
+or nil hides it (decision T575; Blizzard's aura buttons hide themselves
+with `SetShown(secretwrap(false))` when they hold no aura). `IsShown`
+answers a plain boolean (unverified: whether the client answers a secret
+there).
+
 A status bar's value or range set from a secret is its bar value aspect:
 `GetValue`, `GetInterpolatedValue` and `GetMinMaxValues` read back
 secrets, `OnValueChanged` and `OnMinMaxChanged` get the value and range

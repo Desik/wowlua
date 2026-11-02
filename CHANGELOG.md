@@ -26,6 +26,7 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 ### Fixed
 
 - `wowlua publish` with a missing or wrong token now shows the registry's reason on Windows, not a connection error.
+- Aura containers (`CustomAuraContainerTemplate`, `aura.container`) on WoW Forever show only the auras the unit has: every one of their buttons showed, empty, so a player without debuffs looked as if they had Magic, Curse, Poison and Disease debuffs.
 
 ## 0.13.8 (2026-11-01)
 

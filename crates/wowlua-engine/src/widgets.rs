@@ -1878,8 +1878,13 @@ fn hide(vm: &mut Vm, id: WidgetId, _c: NativeCall) -> Ret {
     Ok(vec![])
 }
 
+/// `SetShown(shown)`: a secret follows the value it hides (decision T575:
+/// Blizzard's aura buttons hide with `SetShown(secretwrap(false))`, and
+/// showed as phantom auras while a secret false counted as true).
+/// Unverified: whether the client then answers `IsShown` as a secret.
 fn set_shown_method(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
-    set_shown(vm, id, c.arg(2).truthy());
+    let shown = vm.hidden(c.arg(2)).truthy();
+    set_shown(vm, id, shown);
     Ok(vec![])
 }
 
