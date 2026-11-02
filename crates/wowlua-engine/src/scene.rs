@@ -312,6 +312,11 @@ pub struct WorldView {
     pub clutter_density: f64,
     /// How its shadows are drawn (decision T564).
     pub shadows: Shadows,
+    /// The weather (decision T565): its kind (0 clear, 1 rain, 2 snow, 3
+    /// sandstorm), its intensity (0 to 1), and how much of it is drawn
+    /// (`weatherDensity`, 0 to 3).
+    pub weather: (u32, f64),
+    pub weather_density: f64,
 }
 
 /// How the 3D world's shadows are drawn (decision T564): the game's
@@ -439,6 +444,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         blend: setting(vm, "shadowBlendCascades", 0.0) != 0.0,
         entity_fade: setting(vm, "entityShadowFadeScale", 50.0).max(0.0),
     };
+    let weather = engine(vm).world.weather;
+    let weather_density = setting(vm, "weatherDensity", 2.0).clamp(0.0, 3.0);
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -464,6 +471,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         clutter_dist,
         clutter_density,
         shadows,
+        weather,
+        weather_density,
     })
 }
 

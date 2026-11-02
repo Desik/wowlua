@@ -33,6 +33,7 @@ pub mod tables;
 pub mod tga;
 pub mod wdb;
 pub mod wdt;
+pub mod weather;
 pub mod wmo;
 
 pub use casc::{Casc, CascError};

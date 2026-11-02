@@ -549,6 +549,9 @@ pub(crate) struct World {
     /// measurement's, `bench.rs`).
     pub(crate) still_props: bool,
     liquid_setup: Option<LiquidSetup>,
+    /// What draws the weather (T565), and how many fell in the last frame.
+    weather_setup: Option<WeatherSetup>,
+    pub(crate) weather_drops: u32,
     tiles: HashMap<(u32, i32, i32), Option<GpuTile>>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
     building_setup: Option<BuildingSetup>,
@@ -1764,7 +1767,17 @@ impl Renderer {
         // The place's light at the realm's time of day (T555), else a plain
         // sky and sun.
         let far = w.far as f32;
-        let light = assets.light(w.map, w.eye, w.day_time);
+        // (the weather's storm set blended in by its intensity, as the
+        // game: T565)
+        let mut light = assets.light(w.map, w.eye, w.day_time, LightKind::Clear);
+        let (weather, intensity) = (w.weather.0, w.weather.1 as f32);
+        if weather != 0
+            && intensity > 0.0
+            && let Some(l) = light.as_mut()
+            && let Some(storm) = assets.light(w.map, w.eye, w.day_time, LightKind::Storm)
+        {
+            l.mix(&storm, intensity);
+        }
         let (mut sun, direct, ambient, fog, fog_start, fog_end, sky) = match &light {
             Some(l) => {
                 let d = wowlua_casc::light::light_direction(w.day_time);
@@ -1898,6 +1911,8 @@ impl Renderer {
                 [l[0], l[1], l[2], 0.0]
             },
         };
+        // The weather (T565): what falls, how much, lit by the light.
+        let drops = self.world_weather(w, &globals, direct, ambient, assets);
         let sky_globals = {
             let l = f32s(w.look);
             let u = f32s(w.up);
@@ -2351,6 +2366,232 @@ impl Renderer {
                 }
             }
         }
+        // The weather over it all (T565).
+        if drops > 0
+            && let Some(ws) = self.world.weather_setup.as_ref()
+            && let Some((_, group)) = &ws.group
+        {
+            pass.set_pipeline(&ws.pipeline);
+            pass.set_bind_group(0, group, &[]);
+            pass.draw(0..6, 0..drops);
+        }
+    }
+}
+
+use wowlua_casc::light::Kind as LightKind;
+
+/// The weather's globals (`weather.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct WeatherGlobals {
+    view_proj: [f32; 16],
+    eye: [f32; 4],
+    right: [f32; 4],
+    up: [f32; 4],
+    color: [f32; 4],
+    how: [f32; 4],
+}
+
+/// The weather's pipeline, its globals, and their binding with the
+/// texture that falls (its texture's index).
+struct WeatherSetup {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    globals: wgpu::Buffer,
+    sampler: wgpu::Sampler,
+    group: Option<(usize, wgpu::BindGroup)>,
+}
+
+/// How a kind of weather falls (decision T565; the game's unverified):
+/// the box about the eye (yards), how fast (yards a second), a quad's size
+/// (yards; rain's its width, eight times as long), the most at full
+/// intensity and `weatherDensity` 3, and how opaque.
+fn fall_of(kind: u32) -> Option<(f32, f32, f32, f32, f32)> {
+    match kind {
+        1 => Some((30.0, 20.0, 0.08, 8000.0, 0.8)),
+        2 => Some((30.0, 1.5, 0.12, 5000.0, 0.9)),
+        3 => Some((40.0, 6.0, 1.5, 1500.0, 0.25)),
+        _ => None,
+    }
+}
+
+/// How many drops fall: the kind's most, by the intensity and by
+/// `weatherDensity` (0 to 3: a quarter to all).
+fn drops_of(most: f32, intensity: f64, density: f64) -> u32 {
+    (f64::from(most) * intensity.clamp(0.0, 1.0) * (density.clamp(0.0, 3.0) + 1.0) / 4.0).round()
+        as u32
+}
+
+impl Renderer {
+    /// Readies the weather's drawing for a frame (decision T565): its
+    /// globals written, its texture bound; how many drops fall (none for
+    /// clear or a build without the weather's look).
+    fn world_weather(
+        &mut self,
+        w: &WorldView,
+        globals: &Globals,
+        direct: [f32; 3],
+        ambient: [f32; 3],
+        assets: &mut dyn Assets,
+    ) -> u32 {
+        self.world.weather_drops = 0;
+        let (kind, intensity) = w.weather;
+        let Some((side, speed, size, most, opacity)) = fall_of(kind) else {
+            return 0;
+        };
+        let drops = drops_of(most, intensity, w.weather_density);
+        let look = wowlua_casc::weather::Kind::of(kind).and_then(|k| match assets.weathers() {
+            Some(ws) => ws.look(k, intensity as f32),
+            None => k.texture().map(|texture| wowlua_casc::weather::Look {
+                texture,
+                color: [1.0; 3],
+            }),
+        });
+        let Some(look) = look else {
+            return 0;
+        };
+        if drops == 0 {
+            return 0;
+        }
+        self.weather_setup();
+        let tex = self.model_texture(look.texture, assets);
+        if tex == self.missing {
+            return 0;
+        }
+        let lit = [0, 1, 2].map(|k| look.color[k] * (ambient[k] + direct[k]).min(1.0));
+        let l = [w.look[0] as f32, w.look[1] as f32, w.look[2] as f32];
+        let u = [w.up[0] as f32, w.up[1] as f32, w.up[2] as f32];
+        let right = [
+            l[1] * u[2] - l[2] * u[1],
+            l[2] * u[0] - l[0] * u[2],
+            l[0] * u[1] - l[1] * u[0],
+        ];
+        let g = WeatherGlobals {
+            view_proj: wowlua_casc::m2::mul(&globals.proj, &globals.view),
+            eye: [
+                w.eye[0] as f32,
+                w.eye[1] as f32,
+                w.eye[2] as f32,
+                w.time as f32,
+            ],
+            right: [right[0], right[1], right[2], 0.0],
+            up: [u[0], u[1], u[2], 0.0],
+            color: [lit[0], lit[1], lit[2], opacity],
+            how: [kind as f32, side, speed, size],
+        };
+        let ws = self
+            .world
+            .weather_setup
+            .as_mut()
+            .expect("the weather's setup");
+        self.queue
+            .write_buffer(&ws.globals, 0, bytemuck::bytes_of(&g));
+        if ws.group.as_ref().map(|(t, _)| *t) != Some(tex) {
+            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("world weather"),
+                layout: &ws.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ws.globals.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&self.textures[tex].view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&ws.sampler),
+                    },
+                ],
+            });
+            ws.group = Some((tex, group));
+        }
+        self.world.weather_drops = drops;
+        drops
+    }
+
+    fn weather_setup(&mut self) {
+        if self.world.weather_setup.is_some() {
+            return;
+        }
+        let d = &self.device;
+        let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world weather"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                texture_entry(1),
+                sampler_entry(2),
+            ],
+        });
+        let shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("world weather"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("weather.wgsl").into()),
+        });
+        let pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("world weather"),
+            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("world weather"),
+                bind_group_layouts: &[Some(&layout)],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let globals = d.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("world weather"),
+            size: std::mem::size_of::<WeatherGlobals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let sampler = d.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("world weather"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        self.world.weather_setup = Some(WeatherSetup {
+            pipeline,
+            layout,
+            globals,
+            sampler,
+            group: None,
+        });
     }
 }
 
@@ -3152,6 +3393,8 @@ mod tests {
             clutter_dist: 0.0,
             clutter_density: 0.0,
             shadows: Default::default(),
+            weather: (0, 0.0),
+            weather_density: 2.0,
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);

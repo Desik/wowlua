@@ -236,6 +236,9 @@ pub struct World {
     pub on_taxi: bool,
     /// The sounds played (`C_Sound.PlaySound`'s handles).
     pub sound_handles: f64,
+    /// The weather (decision T565): its kind (`Enum.WeatherType`: 0 clear,
+    /// 1 rain, 2 snow, 3 sandstorm) and intensity (0 to 1).
+    pub weather: (u32, f64),
     /// The mailboxes, the inbox, the letter being written.
     pub mail: crate::mail::Mail,
     /// The bankers, the character's bank tabs.
