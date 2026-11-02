@@ -302,6 +302,26 @@ fn cascades(
 }
 
 impl Renderer {
+    /// Whether the eye is inside a placed building's indoor group (decision
+    /// T581): the eye in the building's own space (its placement's axes,
+    /// scaled) within the group's bounds.
+    fn eye_indoors(&self, placed: &[(u32, [f32; 16])], eye: [f64; 3]) -> bool {
+        placed.iter().any(|(file, m)| {
+            let Some(Some(b)) = self.world.buildings.get(file) else {
+                return false;
+            };
+            let d = [0, 1, 2].map(|r| eye[r] - f64::from(m[12 + r]));
+            let local = [0, 1, 2].map(|k| {
+                let a = [m[k * 4], m[k * 4 + 1], m[k * 4 + 2]].map(f64::from);
+                let len2 = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).max(1e-9);
+                (d[0] * a[0] + d[1] * a[1] + d[2] * a[2]) / len2
+            });
+            b.groups.iter().filter_map(|g| g.indoor).any(|[lo, hi]| {
+                (0..3).all(|k| local[k] >= f64::from(lo[k]) && local[k] <= f64::from(hi[k]))
+            })
+        })
+    }
+
     /// Draws the sun's shadow maps (decision T564), each the depth it sees
     /// in its box: by `shadowMode`, the units (1), the buildings and props
     /// (2), the ground (3 and up).
@@ -313,7 +333,7 @@ impl Renderer {
         maps: &[Cascade],
         detailed: &[(i32, i32)],
         placed: &[(u32, [f32; 16])],
-        doodad_ranges: &[(u32, u32, u32)],
+        sun_ranges: &[Vec<(u32, u32, u32)>],
         models: Option<&crate::model::WorldModels>,
         model_groups: &[wgpu::BindGroup],
     ) {
@@ -398,12 +418,16 @@ impl Renderer {
                         }
                     }
                 }
-                for &(file, first, count) in doodad_ranges {
+                // (the props reaching into its box only: T581)
+                let Some((sun_instances, _)) = self.world.sun_instances.as_ref() else {
+                    continue;
+                };
+                for &(file, first, count) in sun_ranges.get(k).map_or(&[][..], |r| &r[..]) {
                     let Some(Some(d)) = self.world.doodads.get(&file) else {
                         continue;
                     };
                     let (at, end) = (u64::from(first) * 64, u64::from(first + count) * 64);
-                    pass.set_vertex_buffer(1, instances.slice(at..end));
+                    pass.set_vertex_buffer(1, sun_instances.slice(at..end));
                     pass.set_vertex_buffer(0, d.vertices.slice(..));
                     pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
                     for batch in d.batches.iter().filter(|b| !b.blended) {
@@ -580,6 +604,11 @@ pub(crate) struct World {
     identity: Option<wgpu::Buffer>,
     /// The placements' matrices of a draw, and the buffer's size.
     instances: Option<(wgpu::Buffer, u64)>,
+    /// The props' placements each of the sun's maps draws, and the
+    /// buffer's size (T581).
+    sun_instances: Option<(wgpu::Buffer, u64)>,
+    /// The props' instances drawn into the sun's maps in the last frame.
+    pub(crate) sun_props: usize,
     /// What stretches the world drawn at another scale to the screen, and
     /// the texture it is drawn into (decision T539).
     stretch: Option<Stretch>,
@@ -2010,6 +2039,58 @@ impl Renderer {
             _ => Vec::new(),
         };
         self.world.sun_maps = sun_maps.len();
+        // The props each of the sun's maps draws (T581): those whose ball
+        // (the model's radius, by its placement's scale) reaches into its
+        // box, every map's after the other in one buffer.
+        let mut sun_ranges: Vec<Vec<(u32, u32, u32)>> = Vec::new();
+        self.world.sun_props = 0;
+        if w.shadows.mode >= 2 && !sun_maps.is_empty() {
+            let mut sun_matrices: Vec<[f32; 16]> = Vec::new();
+            let radii: HashMap<u32, f64> = doodad_ranges
+                .iter()
+                .map(|&(file, _, _)| (file, self.model_radius(file, assets).map_or(1.0, f64::from)))
+                .collect();
+            for c in &sun_maps {
+                let mut ranges = Vec::new();
+                for &(file, first, count) in &doodad_ranges {
+                    let start = sun_matrices.len() as u32;
+                    for m in &matrices[first as usize..(first + count) as usize] {
+                        let scale = f64::from((m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt());
+                        let at = [m[12], m[13], m[14]].map(f64::from);
+                        if c.covers(at, radii[&file] * scale) {
+                            sun_matrices.push(*m);
+                        }
+                    }
+                    let n = sun_matrices.len() as u32 - start;
+                    if n > 0 {
+                        ranges.push((file, start, n));
+                    }
+                }
+                sun_ranges.push(ranges);
+            }
+            self.world.sun_props = sun_matrices.len();
+            if !sun_matrices.is_empty() {
+                let bytes: &[u8] = bytemuck::cast_slice(&sun_matrices);
+                let len = bytes.len() as u64;
+                if self
+                    .world
+                    .sun_instances
+                    .as_ref()
+                    .is_none_or(|(_, size)| *size < len)
+                {
+                    let size = len.next_power_of_two().max(4096);
+                    let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("sun placements"),
+                        size,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    self.world.sun_instances = Some((buffer, size));
+                }
+                let (buffer, _) = self.world.sun_instances.as_ref().expect("the buffer");
+                self.queue.write_buffer(buffer, 0, bytes);
+            }
+        }
         let mut shadow_mats = [[0.0f32; 16]; 4];
         let (mut shadow_ends, mut shadow_texels) = ([0.0f32; 4], [0.0f32; 4]);
         for (k, c) in sun_maps.iter().enumerate() {
@@ -2047,7 +2128,13 @@ impl Renderer {
             terrain: [f32::from(u8::from(w.specular)), TERRAIN_SHINE, 0.0, 0.0],
         };
         // The weather (T565): what falls, how much, lit by the light.
-        let drops = self.world_weather(w, &globals, direct, ambient, assets);
+        let drops = if self.eye_indoors(&placed, w.eye) {
+            // (under a roof: none falls, T581)
+            self.world.weather_drops = 0;
+            0
+        } else {
+            self.world_weather(w, &globals, direct, ambient, assets)
+        };
         let sky_globals = {
             let l = f32s(w.look);
             let u = f32s(w.up);
@@ -2278,7 +2365,7 @@ impl Renderer {
                 &sun_maps,
                 &detailed,
                 &placed,
-                &doodad_ranges,
+                &sun_ranges,
                 models.as_ref(),
                 &groups,
             );
@@ -2864,6 +2951,9 @@ struct GpuGroup {
     /// space (what the view must see of it, T538).
     middle: [f32; 3],
     reach: f32,
+    /// Its bounds in the building's own space where it is indoors (its
+    /// flags: T581), else none.
+    indoor: Option<[[f32; 3]; 2]>,
 }
 
 /// A building on the GPU: its groups, drawn wherever it is placed.
@@ -3141,6 +3231,7 @@ impl Renderer {
                     batches,
                     middle: [lo[0] + half[0], lo[1] + half[1], lo[2] + half[2]],
                     reach: (half[0] * half[0] + half[1] * half[1] + half[2] * half[2]).sqrt(),
+                    indoor: indoors.then_some(g.bounds),
                 });
             }
             GpuBuilding { groups }

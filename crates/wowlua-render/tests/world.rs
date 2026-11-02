@@ -818,6 +818,44 @@ mock.advanceFrames(2, 1000 / 60)",
     }
 }
 
+/// Indoors and the sun's maps (decision T581): no rain falls with the eye
+/// inside the abbey (an indoor group), outside it does; the sun's maps draw
+/// only the props reaching into them, fewer than every prop in each map.
+#[test]
+fn no_rain_falls_indoors_and_the_sun_draws_what_it_sees() {
+    let (Some((mut vm, casc)), Some((n, w, _))) = (session_and_casc(), abbey()) else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    let mut drops_at = |vm: &mut Vm, place: &str| {
+        run(
+            vm,
+            &format!(
+                "mock.moveTo({{ world = {{ {place}, z = 0, instanceID = 0 }}, facing = 0 }})
+mock.setWeather('rain', 1)
+CameraZoomIn(GetCameraZoom())
+mock.advanceFrames(30, 1000 / 60)"
+            ),
+        );
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        (r.world_weather_drops(), r.world_sun_props())
+    };
+    let (inside, _) = drops_at(&mut vm, &format!("y = {n}, x = {w}"));
+    let (outside, sun_props) = drops_at(&mut vm, "y = -8949.95, x = -132.493");
+    eprintln!("inside {inside} drops, outside {outside}; {sun_props} props in the sun's maps");
+    assert_eq!(inside, 0);
+    assert!(outside > 100, "{outside}");
+    assert!(sun_props > 0, "{sun_props}");
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]
