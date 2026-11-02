@@ -175,6 +175,8 @@ pub(crate) struct World {
     moves: HashMap<u32, bool>,
     /// The props posed one by one in the last frame (T558).
     pub(crate) moving: usize,
+    /// The particles drawn in the last frame (T559).
+    pub(crate) particles: usize,
     liquid_setup: Option<LiquidSetup>,
     tiles: HashMap<(u32, i32, i32), Option<GpuTile>>,
     depth: Option<(wgpu::TextureView, u32, u32)>,

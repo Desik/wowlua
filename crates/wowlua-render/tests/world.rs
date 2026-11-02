@@ -378,11 +378,25 @@ mock.advanceFrames(2, 1000 / 60)",
     r.render_blocking(&scene, 1.0, None, &mut assets)
         .expect("drawn");
     eprintln!(
-        "{} props posed; two frames took {:?}",
+        "{} props posed, {} particles; two frames took {:?}",
         r.moving_props(),
+        r.world_particles(),
         start.elapsed()
     );
     assert!(r.moving_props() > 0);
+    // (the lanterns' flames, the props' sparkles: T559)
+    assert!(r.world_particles() > 0);
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let image = r
+            .render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        let png = wowlua_render::encode_png(&image).expect("encoded");
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("northshire-particles.png"),
+            png,
+        )
+        .expect("written");
+    }
 }
 
 /// The world's units posed on the GPU look as posed on the CPU (decision

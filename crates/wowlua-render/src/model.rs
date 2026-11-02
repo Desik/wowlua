@@ -232,6 +232,8 @@ pub(crate) struct Posed {
     own_camera: Option<(Vec3, Vec3, f32)>,
     /// What the GPU poses (the world's units, decision T540).
     skinned: Option<Skinned>,
+    /// Its particles, kept with its pose (the world's, decision T559).
+    sprites: Vec<Sprite>,
 }
 
 /// The world's models, ready to draw (decision T526): the ones posed on
@@ -931,13 +933,112 @@ impl Renderer {
             portrait,
             own_camera,
             skinned: None,
+            sprites: Vec::new(),
+        }
+    }
+
+    /// Particles as quads facing a camera (its `view`): spun heads, tails
+    /// drawn across, ribbons' pieces as they are; each draw without depth.
+    fn sprite_quads(
+        &self,
+        sprites: Vec<Sprite>,
+        view: &Mat4,
+        verts: &mut Vec<MVertex>,
+        indices: &mut Vec<u32>,
+        draws: &mut Vec<Draw>,
+    ) {
+        let right = [view[0], view[4], view[8]];
+        let up = [view[1], view[5], view[9]];
+        let back = [view[2], view[6], view[10]];
+        for sp in sprites {
+            let (sn, cs) = sp.spin.sin_cos();
+            let h = sp.size / 2.0;
+            // A tail: from its head back to its end, its width across the
+            // view; a head: square to the view, spun.
+            let tail = sp.tail.map(|end| {
+                let along = sub(end, sp.pos);
+                let side = cross(along, back);
+                let l = dot(side, side).sqrt();
+                let side = if l > 1e-6 {
+                    [side[0] / l * h, side[1] / l * h, side[2] / l * h]
+                } else {
+                    [right[0] * h, right[1] * h, right[2] * h]
+                };
+                (end, side)
+            });
+            let corner = |x: f32, y: f32| {
+                // A ribbon's piece: x -1 the head, 1 the tail; y 1 the top.
+                if let Some(c) = sp.corners {
+                    return match (x < 0.0, y > 0.0) {
+                        (true, true) => c[0],
+                        (true, false) => c[1],
+                        (false, true) => c[2],
+                        (false, false) => c[3],
+                    };
+                }
+                if let Some((end, side)) = tail {
+                    // x: -1 the head, 1 the tail's end; y across.
+                    let at = if x < 0.0 { sp.pos } else { end };
+                    return [
+                        at[0] + side[0] * y,
+                        at[1] + side[1] * y,
+                        at[2] + side[2] * y,
+                    ];
+                }
+                let (rx, ry) = (x * cs - y * sn, x * sn + y * cs);
+                [
+                    sp.pos[0] + (right[0] * rx + up[0] * ry) * h,
+                    sp.pos[1] + (right[1] * rx + up[1] * ry) * h,
+                    sp.pos[2] + (right[2] * rx + up[2] * ry) * h,
+                ]
+            };
+            let [u0, v0, u1, v1] = sp.cell;
+            let start = indices.len() as u32;
+            let flags = UNLIT | (u32::from(sp.blend.min(7)) << 8);
+            let mk = |p: Vec3, uv: [f32; 2]| MVertex {
+                pos: p,
+                normal: [0.0, 0.0, 1.0],
+                t1: uv,
+                t2: uv,
+                raw2: uv,
+                color: sp.color,
+                flags,
+                shaders: crate::combiners::ps::MOD,
+            };
+            let (a, b, c, d) = (
+                mk(corner(-1.0, 1.0), [u0, v0]),
+                mk(corner(-1.0, -1.0), [u0, v1]),
+                mk(corner(1.0, 1.0), [u1, v0]),
+                mk(corner(1.0, -1.0), [u1, v1]),
+            );
+            let first = verts.len() as u32;
+            verts.extend_from_slice(&[a, b, c, d]);
+            indices.extend([0, 1, 2, 2, 1, 3].map(|k| first + k));
+            let tex = [sp.tex, self.white, self.white];
+            match draws.last_mut() {
+                Some(last)
+                    if last.tex == tex
+                        && last.blend == sp.blend
+                        && !last.depth_write
+                        && last.end == start =>
+                {
+                    last.end = indices.len() as u32
+                }
+                _ => draws.push(Draw {
+                    blend: sp.blend,
+                    depth_write: false,
+                    tex,
+                    start,
+                    end: indices.len() as u32,
+                }),
+            }
         }
     }
 
     /// The 3D world's units as their models (decision T526): posed for the
     /// world's camera (`view`, `proj`), lit by `light` (its direction,
-    /// ambient and diffuse), ready to draw in the world's pass; none for
-    /// nothing to draw. Their particles are left out.
+    /// ambient and diffuse), with their particles (decision T559), ready to
+    /// draw in the world's pass; none for nothing to draw.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn world_models(
         &mut self,
@@ -965,9 +1066,12 @@ impl Renderer {
             portrait: None,
             own_camera: None,
             skinned: None,
+            sprites: Vec::new(),
         };
         p.verts.clear();
         p.indices.clear();
+        // (each unit's and prop's particles, as last posed: T559)
+        let mut sprites: Vec<Sprite> = Vec::new();
         // (posed on the GPU where it can: the bones of every unit's parts
         // together, each batch's record pointing at its own; T540)
         let skinning = self.skinning();
@@ -1002,6 +1106,7 @@ impl Renderer {
                     }
                     let mut one = self.pose_actors(std::slice::from_ref(actor), camera, ms, assets);
                     one.skinned = self.models.skinned_out.take();
+                    one.sprites = std::mem::take(&mut self.models.sprites);
                     one
                 }
             };
@@ -1014,6 +1119,7 @@ impl Renderer {
                     d
                 }));
             }
+            sprites.extend_from_slice(&one.sprites);
             let (vbase, ibase) = (p.verts.len() as u32, p.indices.len() as u32);
             p.verts.extend_from_slice(&one.verts);
             p.indices.extend(one.indices.iter().map(|i| i + vbase));
@@ -1030,6 +1136,9 @@ impl Renderer {
         self.world_poses = fresh;
         drop(kept);
         self.models.sprites.clear();
+        // Their particles, facing the world's camera (T559).
+        self.world.particles = sprites.len();
+        self.sprite_quads(sprites, &view, &mut p.verts, &mut p.indices, &mut p.draws);
         if p.verts.is_empty() && skin_draws.is_empty() {
             self.world_verts = p.verts;
             self.world_indices = p.indices;
@@ -1726,92 +1835,8 @@ impl Renderer {
         };
         let view_proj = m2::mul(&proj, &view);
         // The particles, facing the camera, over the meshes.
-        let right = [view[0], view[4], view[8]];
-        let up = [view[1], view[5], view[9]];
-        let back = [view[2], view[6], view[10]];
-        for sp in std::mem::take(&mut self.models.sprites) {
-            let (sn, cs) = sp.spin.sin_cos();
-            let h = sp.size / 2.0;
-            // A tail: from its head back to its end, its width across the
-            // view; a head: square to the view, spun.
-            let tail = sp.tail.map(|end| {
-                let along = sub(end, sp.pos);
-                let side = cross(along, back);
-                let l = dot(side, side).sqrt();
-                let side = if l > 1e-6 {
-                    [side[0] / l * h, side[1] / l * h, side[2] / l * h]
-                } else {
-                    [right[0] * h, right[1] * h, right[2] * h]
-                };
-                (end, side)
-            });
-            let corner = |x: f32, y: f32| {
-                // A ribbon's piece: x -1 the head, 1 the tail; y 1 the top.
-                if let Some(c) = sp.corners {
-                    return match (x < 0.0, y > 0.0) {
-                        (true, true) => c[0],
-                        (true, false) => c[1],
-                        (false, true) => c[2],
-                        (false, false) => c[3],
-                    };
-                }
-                if let Some((end, side)) = tail {
-                    // x: -1 the head, 1 the tail's end; y across.
-                    let at = if x < 0.0 { sp.pos } else { end };
-                    return [
-                        at[0] + side[0] * y,
-                        at[1] + side[1] * y,
-                        at[2] + side[2] * y,
-                    ];
-                }
-                let (rx, ry) = (x * cs - y * sn, x * sn + y * cs);
-                [
-                    sp.pos[0] + (right[0] * rx + up[0] * ry) * h,
-                    sp.pos[1] + (right[1] * rx + up[1] * ry) * h,
-                    sp.pos[2] + (right[2] * rx + up[2] * ry) * h,
-                ]
-            };
-            let [u0, v0, u1, v1] = sp.cell;
-            let start = indices.len() as u32;
-            let flags = UNLIT | (u32::from(sp.blend.min(7)) << 8);
-            let mk = |p: Vec3, uv: [f32; 2]| MVertex {
-                pos: p,
-                normal: [0.0, 0.0, 1.0],
-                t1: uv,
-                t2: uv,
-                raw2: uv,
-                color: sp.color,
-                flags,
-                shaders: crate::combiners::ps::MOD,
-            };
-            let (a, b, c, d) = (
-                mk(corner(-1.0, 1.0), [u0, v0]),
-                mk(corner(-1.0, -1.0), [u0, v1]),
-                mk(corner(1.0, 1.0), [u1, v0]),
-                mk(corner(1.0, -1.0), [u1, v1]),
-            );
-            let first = verts.len() as u32;
-            verts.extend_from_slice(&[a, b, c, d]);
-            indices.extend([0, 1, 2, 2, 1, 3].map(|k| first + k));
-            let tex = [sp.tex, self.white, self.white];
-            match draws.last_mut() {
-                Some(last)
-                    if last.tex == tex
-                        && last.blend == sp.blend
-                        && !last.depth_write
-                        && last.end == start =>
-                {
-                    last.end = indices.len() as u32
-                }
-                _ => draws.push(Draw {
-                    blend: sp.blend,
-                    depth_write: false,
-                    tex,
-                    start,
-                    end: indices.len() as u32,
-                }),
-            }
-        }
+        let sprites = std::mem::take(&mut self.models.sprites);
+        self.sprite_quads(sprites, &view, &mut verts, &mut indices, &mut draws);
         if verts.is_empty() {
             return None;
         }

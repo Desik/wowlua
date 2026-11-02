@@ -351,6 +351,11 @@ impl Renderer {
         self.world.moving
     }
 
+    /// The 3D world's particles drawn in its last frame (decision T559).
+    pub fn world_particles(&self) -> usize {
+        self.world.particles
+    }
+
     /// A renderer on the first adapter there is (a software one when there
     /// is no GPU).
     pub async fn new() -> Result<Renderer, String> {
