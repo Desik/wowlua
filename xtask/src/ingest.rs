@@ -1657,6 +1657,44 @@ pub fn run(root: &Path, saved: &Path, gate: &mut Gate) -> Result<()> {
         write_file(&path, &text)?;
     }
 
+    // The Graphics settings (`/stdtest engine graphics`, decision T561):
+    // what each setting's levels and the overall quality set, as engine
+    // data.
+    // (each client's own: its flavor and version on the first line)
+    if let Ok(list) = state.get::<mlua::Table>("engineGraphics") {
+        let lines: Vec<String> = list
+            .sequence_values::<String>()
+            .collect::<Result<_, _>>()
+            .map_err(|e| anyhow!("{e}"))?;
+        let mut first = lines
+            .first()
+            .map(|l| l.split_whitespace())
+            .into_iter()
+            .flatten()
+            .skip(1);
+        let flavor = first.next().unwrap_or("camelot").to_string();
+        let client = first.next().unwrap_or("").to_string();
+        if ["camelot", "vanilla", "tbc", "mists"].contains(&flavor.as_str())
+            && gate
+                .take(&stamps, &format!("graphics-{flavor}"), &version)
+                .is_some()
+        {
+            let mut text = format!(
+                "# The {flavor} client {client}: what the Graphics settings set (decision\n\
+                 # T561; `/stdtest engine graphics`, cargo xtask ingest): `setting=level`\n\
+                 # then the CVars it set.\n"
+            );
+            for l in lines.iter().filter(|l| !l.starts_with("start ")) {
+                text.push_str(l);
+                text.push('\n');
+            }
+            write_file(
+                &root.join(format!("crates/wowlua-engine/data/{flavor}-graphics.txt")),
+                &text,
+            )?;
+        }
+    }
+
     // The input recording, in order.
     if let Ok(input) = state.get::<mlua::Table>("engineInput")
         && gate.take(&stamps, "input", &version).is_some()

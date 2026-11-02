@@ -1054,6 +1054,8 @@ build has them all (`wowlua install` in `tests/ingame`).
 
 ## The Camelot update (decision T553)
 
+On WoW Forever: from its launch on 5 November 2026 (no login before).
+
 The declarations and Blizzard's UI code now come from the installed client
 (1.60.1.70658 or newer), but the engine's recordings are of 70425: its
 `Enum` corrections, CVars, number globals, colors, spells, talents and
@@ -1113,6 +1115,8 @@ now.
 
 ## The world's motion (decision T558)
 
+On WoW Forever: from its launch on 5 November 2026 (no login before).
+
 Look, do not run anything: on WoW Forever, stand at Northshire Abbey on a
 clear day and watch the trees and bushes about it for ten seconds.
 
@@ -1120,3 +1124,35 @@ clear day and watch the trees and bushes about it for ten seconds.
 
    wowlua: they stand still (their models have no animation; a sway in
    the game would be the shaders' wind). Seen: (to do)
+
+## The Graphics settings (decision T561)
+
+What each Graphics setting's levels set, recorded on each client. It
+changes your graphics settings for about a minute and puts every one back
+at the end. The Classic clients can be recorded now; WoW Forever from its
+launch on 5 November 2026 (no login before).
+
+1. **Classic Era**:
+   1. in `tests/ingame`: `wowlua install --client _classic_era_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest --client _classic_era_`
+2. **TBC Anniversary**:
+   1. in `tests/ingame`: `wowlua install --client _anniversary_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest --client _anniversary_`
+3. **MoP Classic**:
+   1. in `tests/ingame`: `wowlua install --client _classic_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest --client _classic_`
+4. **WoW Forever** (from 5 November):
+   1. in `tests/ingame`: `wowlua install --client _forever_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest`
+
+   wowlua: `crates/wowlua-engine/data/<flavor>-graphics.txt`; camelot's has
+   only the shadow levels seen in Config.wtf files (unverified), the
+   Classic clients' none. Recorded: (to do)

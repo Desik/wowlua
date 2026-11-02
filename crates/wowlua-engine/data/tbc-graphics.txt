@@ -1,0 +1,3 @@
+# What the Graphics settings set on the tbc client (decision T561): not
+# recorded yet (`/stdtest engine graphics` on that client, cargo xtask
+# ingest --client <its folder>).

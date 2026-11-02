@@ -1,0 +1,10 @@
+# What the Graphics settings set (decision T561): `setting=level` then the
+# CVars it sets. Not recorded yet (`/stdtest engine graphics` records it,
+# cargo xtask ingest writes it here): the shadow levels seen in clients'
+# Config.wtf files (levels 2 to 5; 0 and 1 inferred), unverified.
+graphicsShadowQuality=0 shadowMode=0 shadowTextureSize=1024 shadowNumCascades=1 shadowBlendCascades=0 shadowSoft=0
+graphicsShadowQuality=1 shadowMode=1 shadowTextureSize=1024 shadowNumCascades=1 shadowBlendCascades=0 shadowSoft=0
+graphicsShadowQuality=2 shadowMode=2 shadowTextureSize=2048 shadowNumCascades=3 shadowBlendCascades=1 shadowSoft=0
+graphicsShadowQuality=3 shadowMode=3 shadowTextureSize=2048 shadowNumCascades=3 shadowBlendCascades=1 shadowSoft=0
+graphicsShadowQuality=4 shadowMode=3 shadowTextureSize=2048 shadowNumCascades=3 shadowBlendCascades=1 shadowSoft=1
+graphicsShadowQuality=5 shadowMode=4 shadowTextureSize=2048 shadowNumCascades=4 shadowBlendCascades=1 shadowSoft=1

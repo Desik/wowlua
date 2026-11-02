@@ -67,6 +67,7 @@ fn build() -> tempfile::TempDir {
         "maps.wowlua",
         "collections.wowlua",
         "leftovers.wowlua",
+        "graphics.wowlua",
         "screen.wowlua",
         "wrap.wowlua",
         "talents2.wowlua",

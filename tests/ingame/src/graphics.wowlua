@@ -1,0 +1,144 @@
+-- /stdtest engine graphics: what the client's Graphics settings set
+-- (decision T561), into StdTestState.engineGraphics: for each setting of
+-- the Graphics panel and each of its levels, the CVars that changed when
+-- it took that level, then the same for the overall quality (0 to 9).
+-- One step every 0.3 seconds; every CVar is put back at the end.
+import state from "/state"
+import stamp from "/state"
+import say from "/harness"
+
+const G = _G :: any
+
+--- The Graphics panel's settings (each one's levels from 0 up).
+const SETTINGS: string[] = {
+    "graphicsShadowQuality",
+    "graphicsViewDistance",
+    "graphicsGroundClutter",
+    "graphicsEnvironmentDetail",
+    "graphicsLiquidDetail",
+    "graphicsPBRLiquidDetail",
+    "graphicsParticleDensity",
+    "graphicsSpellDensity",
+    "graphicsSSAO",
+    "graphicsDepthEffects",
+    "graphicsComputeEffects",
+    "graphicsOutlineMode",
+    "graphicsProjectedTextures",
+    "graphicsTextureResolution",
+    "graphicsLightMode",
+}
+
+--- The flavor of the client by its version (`GetBuildInfo`).
+local function flavorOf(version: string): string
+    if version:find("^1%.60") then
+        return "camelot"
+    elseif version:find("^1%.") then
+        return "vanilla"
+    elseif version:find("^2%.") then
+        return "tbc"
+    elseif version:find("^5%.") then
+        return "mists"
+    end
+    return "standard"
+end
+
+--- Every CVar's value now, by name.
+local function values(): { [string]: string }
+    const out: { [string]: string } = {}
+    local ok, commands = pcall(G.ConsoleGetAllCommands)
+    if not ok or type(commands) ~= "table" then
+        return out
+    end
+    const cvar = G.Enum.ConsoleCommandType and G.Enum.ConsoleCommandType.Cvar
+    for _, info in ipairs(commands :: any[]) do
+        if info.commandType == cvar and type(info.command) == "string" then
+            const v = C_CVar.GetCVar(info.command)
+            if v ~= nil then
+                out[info.command] = v
+            end
+        end
+    end
+    return out
+end
+
+--- What differs from `before`, as `name=value` sorted.
+local function changes(before: { [string]: string }, after: { [string]: string }): string
+    const list: string[] = {}
+    for name, v in pairs(after) do
+        if before[name] ~= v then
+            list[#list + 1] = `{name}={v}`
+        end
+    end
+    table.sort(list)
+    return table.concat(list, " ")
+end
+
+export function graphicsProbe()
+    const st = state() :: any
+    const log: string[] = {}
+    st.engineGraphics = log
+    const start = values()
+    -- The steps: each setting's levels 0 to 9 (a level the client does not
+    -- take ends that setting's), then the overall quality 0 to 9.
+    const steps: { name: string, level: number }[] = {}
+    for _, name in ipairs(SETTINGS) do
+        if start[name] ~= nil then
+            for level = 0, 9 do
+                steps[#steps + 1] = { name = name, level = level }
+            end
+        end
+    end
+    for level = 0, 9 do
+        steps[#steps + 1] = { name = "graphicsQuality", level = level }
+    end
+    local version, build = GetBuildInfo()
+    const flavor = flavorOf(version)
+    log[#log + 1] = `start {flavor} {version}.{build} graphicsQuality={tostring(start.graphicsQuality)} {#steps} steps`
+    local skip: string? = nil
+    local i = 0
+    local function finish()
+        -- (every CVar back as it was)
+        const now = values()
+        for name, v in pairs(start) do
+            if now[name] ~= v then
+                pcall(C_CVar.SetCVar, name, v)
+            end
+        end
+        stamp(`graphics-{flavor}`)
+        say(`engine graphics: {#log} lines; type /reload so the file is written`)
+    end
+    local function step()
+        i = i + 1
+        const s = steps[i]
+        if s == nil then
+            finish()
+            return
+        end
+        if s.name == skip then
+            step()
+            return
+        end
+        pcall(C_CVar.SetCVar, s.name, tostring(s.level))
+        C_Timer.After(0.3, function()
+            const after = values()
+            if after[s.name] ~= tostring(s.level) then
+                -- not a level of it: its others neither
+                skip = s.name
+                log[#log + 1] = `{s.name}={s.level} refused ({tostring(after[s.name])})`
+            else
+                log[#log + 1] = `{s.name}={s.level} {changes(start, after)}`
+            end
+            -- (back to the start before the next setting's levels)
+            if steps[i + 1] == nil or steps[i + 1].name ~= s.name then
+                for name, v in pairs(start) do
+                    if after[name] ~= v then
+                        pcall(C_CVar.SetCVar, name, v)
+                    end
+                end
+            end
+            C_Timer.After(0.3, step)
+        end)
+    end
+    say(`engine graphics: {#steps} steps, about {math.ceil(#steps * 0.6)} seconds; your settings are put back at the end`)
+    step()
+end
