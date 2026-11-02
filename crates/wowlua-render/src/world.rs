@@ -179,6 +179,9 @@ pub(crate) struct World {
     pub(crate) particles: usize,
     /// The ground's clutter placed in the last frame (T560).
     pub(crate) clutter: usize,
+    /// Every prop as it stands, none posed one by one (the frame time
+    /// measurement's, `bench.rs`).
+    pub(crate) still_props: bool,
     liquid_setup: Option<LiquidSetup>,
     tiles: HashMap<(u32, i32, i32), Option<GpuTile>>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
@@ -1171,7 +1174,7 @@ impl Renderer {
         // units, each in its own phase (T558); the others as they stand.
         let mut moving: Vec<(u32, [f32; 16])> = Vec::new();
         for (file, mut ms) in by_model {
-            if self.prop_moves(file, assets) {
+            if !self.world.still_props && self.prop_moves(file, assets) {
                 let near = |m: &[f32; 16]| {
                     let d = [
                         f64::from(m[12]) - w.eye[0],

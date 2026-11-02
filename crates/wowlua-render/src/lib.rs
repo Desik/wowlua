@@ -7,6 +7,8 @@
 //! sharing a texture, mask, blend mode and clip rectangle.
 
 mod answers;
+#[cfg(test)]
+mod bench;
 pub mod client;
 mod combiners;
 pub mod compare;

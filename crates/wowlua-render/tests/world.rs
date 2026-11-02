@@ -419,19 +419,30 @@ fn the_ground_has_clutter() {
 mock.advanceFrames(2, 1000 / 60)",
     );
     let scene = wowlua_engine::scene::build(&mut vm);
-    r.render_blocking(&scene, 1.0, None, &mut assets).expect("drawn");
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
     let start = std::time::Instant::now();
-    let image = r.render_blocking(&scene, 1.0, None, &mut assets).expect("drawn");
-    eprintln!("{} clutter models placed; a frame took {:?}", r.world_clutter(), start.elapsed());
+    let image = r
+        .render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    eprintln!(
+        "{} clutter models placed; a frame took {:?}",
+        r.world_clutter(),
+        start.elapsed()
+    );
     assert!(r.world_clutter() > 100);
     if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
         let png = wowlua_render::encode_png(&image).expect("encoded");
-        std::fs::write(std::path::PathBuf::from(dir).join("northshire-clutter.png"), png)
-            .expect("written");
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("northshire-clutter.png"),
+            png,
+        )
+        .expect("written");
     }
     run(&mut vm, "C_CVar.SetCVar('groundEffectDist', '0')");
     let scene = wowlua_engine::scene::build(&mut vm);
-    r.render_blocking(&scene, 1.0, None, &mut assets).expect("drawn");
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
     assert_eq!(r.world_clutter(), 0);
 }
 
