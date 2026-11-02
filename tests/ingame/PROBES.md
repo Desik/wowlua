@@ -1076,7 +1076,14 @@ trainers. These steps record them again on the updated client.
    `LevelConstsExposed`, 10, 10, 10, which 70707's micro menu reads,
    decision T576). The trees' and transmog sources' tests (`wowlua-render`,
    `CHANGED`) list what 70707's tables changed: the mage tree, two
-   sources' appearances. Recorded: (to do)
+   sources' appearances. And what 70707's server changed, in the client's
+   hotfix cache since the game reached its login screen on 2 November:
+   the paladin's, druid's and hunter's trees (`CHANGED`, "70707's
+   hotfixes"; the paladin's new Shieldsworn), the paladin's blessings'
+   and Holy Shield's costs (`wowlua-casc` install, `NEWER_COSTS`), five
+   spells' base cooldowns and an achievement's trait currency
+   (`wowlua-render` answers, `NEWER`), the 24 nameplate atlases back as
+   70658 had them. Recorded: (to do)
 5. **One color** (decision T554): `/run for _,c in ipairs(C_UIColor.GetColors()) do if c.baseTag=="COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR" then print(c.color:GetRGBA()) end end`
 
    wowlua: `0.16862745583057 0.57647061347961 0.019607843831182 0`, the

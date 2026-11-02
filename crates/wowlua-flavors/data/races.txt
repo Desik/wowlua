@@ -24,11 +24,13 @@ spell	Human	-	-	20600	Perception
 spell	Human	-	-	1259718	Will to Survive
 spell	Orc	-	-	20572	Blood Fury
 spell	Orc	-	-	20573	Hardiness
-spell	Orc	-	-	20574	Savage
+spell	Orc	-	WARLOCK	20575	Command
+spell	Orc	-	HUNTER	20576	Command
+spell	Orc	-	WARRIOR,PALADIN,PRIEST,SHAMAN,DRUID,ROGUE,MAGE	21563	Command
 spell	Orc	-	-	1299026	Shatter Curse
 spell	Dwarf	-	-	2481	Find Treasure
 spell	Dwarf	-	-	20594	Stoneform
-spell	Dwarf	-	-	1259719	Earth Fury
+spell	Dwarf	-	-	1259719	Artisan's Precision
 spell	Dwarf	-	-	1259721	Big Game Hunter
 spell	NightElf	-	-	20580	Shadowmeld
 spell	NightElf	-	-	20582	Quickness
