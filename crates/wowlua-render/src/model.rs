@@ -194,7 +194,10 @@ pub(crate) struct Models {
     /// Displays by their source.
     displays: HashMap<String, Option<Display>>,
     /// By blend mode, depth writing, and skinned on the GPU.
-    pipelines: HashMap<(u16, bool, bool), wgpu::RenderPipeline>,
+    /// (and the samples: the world's MSAA, decision T578)
+    pipelines: HashMap<(u16, bool, bool, u32), wgpu::RenderPipeline>,
+    /// The samples the world's models are drawn with (T578).
+    pub(crate) world_samples: u32,
     /// What skinning on the GPU binds (its records and bones) and its
     /// pipelines' layout; none where the GPU cannot (decision T540), not
     /// known yet before the first world.
@@ -244,6 +247,8 @@ pub(crate) struct Posed {
 /// The world's models, ready to draw (decision T526): the ones posed on
 /// the CPU, and the ones the GPU poses with their records and bones.
 pub(crate) struct WorldModels {
+    /// The samples its pipelines have (the world's MSAA, T578).
+    samples: u32,
     vertices: Option<wgpu::Buffer>,
     indices: Option<wgpu::Buffer>,
     group: wgpu::BindGroup,
@@ -552,6 +557,7 @@ impl Renderer {
         blend: u16,
         depth_write: bool,
         skinned: bool,
+        samples: u32,
     ) -> &wgpu::RenderPipeline {
         let layout = match &self.models.skin_layout {
             Some(Some((_, layout))) if skinned => layout,
@@ -561,7 +567,7 @@ impl Renderer {
         let device = &self.device;
         self.models
             .pipelines
-            .entry((blend, depth_write, skinned))
+            .entry((blend, depth_write, skinned, samples))
             .or_insert_with(|| {
                 // (a faded actor's depth alone: T562)
                 let (state, mask) = if blend == DEPTH_ONLY {
@@ -610,7 +616,7 @@ impl Renderer {
                             wgpu::DepthBiasState::default()
                         },
                     }),
-                    multisample: wgpu::MultisampleState::default(),
+                    multisample: crate::world::msaa(samples),
                     fragment: Some(wgpu::FragmentState {
                         module: shader,
                         entry_point: Some(if sun { "fs_shadow" } else { "fs" }),
@@ -1293,24 +1299,25 @@ impl Renderer {
                 )),
             )
         };
+        let samples = self.models.world_samples.max(1);
         for d in &p.draws {
-            self.model_pipeline(d.blend.min(7), d.depth_write, false);
+            self.model_pipeline(d.blend.min(7), d.depth_write, false, samples);
             if d.faded {
-                self.model_pipeline(DEPTH_ONLY, true, false);
+                self.model_pipeline(DEPTH_ONLY, true, false, samples);
             }
         }
         for d in &skin_draws {
-            self.model_pipeline(d.blend.min(7), d.depth_write, true);
+            self.model_pipeline(d.blend.min(7), d.depth_write, true, samples);
             if d.faded {
-                self.model_pipeline(DEPTH_ONLY, true, true);
+                self.model_pipeline(DEPTH_ONLY, true, true, samples);
             }
         }
         // (and the sun's: T564)
         if !p.draws.is_empty() {
-            self.model_pipeline(SUN_DEPTH, true, false);
+            self.model_pipeline(SUN_DEPTH, true, false, 1);
         }
         if !skin_draws.is_empty() {
-            self.model_pipeline(SUN_DEPTH, true, true);
+            self.model_pipeline(SUN_DEPTH, true, true, 1);
         }
         let skinned = match (&self.models.skin_layout, skin_draws.is_empty()) {
             (Some(Some((layout, _))), false) => {
@@ -1352,6 +1359,7 @@ impl Renderer {
         self.world_verts = p.verts;
         self.world_indices = p.indices;
         Some(WorldModels {
+            samples,
             vertices,
             indices,
             group,
@@ -1373,9 +1381,9 @@ impl Renderer {
             let wanted = |faded: bool| (step == 0) != faded;
             let key = |blend: u16, depth_write: bool, skinned: bool| {
                 if step == 1 {
-                    (DEPTH_ONLY, true, skinned)
+                    (DEPTH_ONLY, true, skinned, m.samples)
                 } else {
-                    (blend.min(7), depth_write, skinned)
+                    (blend.min(7), depth_write, skinned, m.samples)
                 }
             };
             pass.set_bind_group(0, &m.group, &[]);
@@ -1470,7 +1478,7 @@ impl Renderer {
         if let (Some(vertices), Some(indices)) = (&m.vertices, &m.indices) {
             pass.set_vertex_buffer(0, vertices.slice(..));
             pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.set_pipeline(&self.models.pipelines[&(SUN_DEPTH, true, false)]);
+            pass.set_pipeline(&self.models.pipelines[&(SUN_DEPTH, true, false, 1)]);
             for d in m.draws.iter().filter(|d| d.blend <= 1) {
                 pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
                 pass.draw_indexed(d.start..d.end, 0, 0..1);
@@ -1480,7 +1488,7 @@ impl Renderer {
             return;
         };
         pass.set_bind_group(2, skin, &[]);
-        pass.set_pipeline(&self.models.pipelines[&(SUN_DEPTH, true, true)]);
+        pass.set_pipeline(&self.models.pipelines[&(SUN_DEPTH, true, true, 1)]);
         let mut bound = None;
         for (i, d) in draws.iter().enumerate().filter(|(_, d)| d.blend <= 1) {
             let Some((vertices, indices)) = self.models.meshes.get(&d.file) else {
@@ -2126,7 +2134,7 @@ impl Renderer {
         let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
         for d in &draws {
-            self.model_pipeline(d.blend.min(7), d.depth_write, false);
+            self.model_pipeline(d.blend.min(7), d.depth_write, false, 1);
         }
         let mut encoder = self
             .device
@@ -2165,7 +2173,9 @@ impl Renderer {
             pass.set_index_buffer(ibuf.slice(..), wgpu::IndexFormat::Uint32);
             pass.set_bind_group(0, &ugroup, &[]);
             for d in &draws {
-                pass.set_pipeline(&self.models.pipelines[&(d.blend.min(7), d.depth_write, false)]);
+                pass.set_pipeline(
+                    &self.models.pipelines[&(d.blend.min(7), d.depth_write, false, 1)],
+                );
                 pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
                 pass.draw_indexed(d.start..d.end, 0, 0..1);
             }

@@ -533,6 +533,12 @@ struct Setup {
 #[derive(Default)]
 pub(crate) struct World {
     setup: Option<Setup>,
+    /// The samples the world's pipelines and targets have (its MSAA,
+    /// decision T578; 0 before the first frame).
+    pub(crate) samples: u32,
+    /// The multisampled color target the world draws into with MSAA, the
+    /// depth buffer's size.
+    msaa_color: Option<wgpu::TextureView>,
     /// Whether each prop model moves as it stands (T558).
     moves: HashMap<u32, bool>,
     /// The props posed one by one in the last frame (T558).
@@ -573,6 +579,25 @@ struct Stretch {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// The image-based smoothing's settings (T578): a texel's size, the
+    /// kind (`ffxAntiAliasingMode`).
+    how: wgpu::Buffer,
+}
+
+/// A pipeline's multisampling: the world's samples (its MSAA, decision
+/// T578).
+pub(crate) fn msaa(count: u32) -> wgpu::MultisampleState {
+    wgpu::MultisampleState {
+        count: count.max(1),
+        ..Default::default()
+    }
+}
+
+/// The samples the world draws with for multisampling's (decision T578):
+/// 4 for any (the count every GPU has for every format WebGPU renders to),
+/// else 1.
+fn samples_for(requested: u32) -> u32 {
+    if requested >= 2 { 4 } else { 1 }
 }
 
 /// The world drawn at `RenderScale`: its texture's view, what binds it to
@@ -755,6 +780,8 @@ impl Renderer {
         if self.world.setup.is_some() {
             return;
         }
+        // (the world's multisampling: T578)
+        let samples = self.world.samples;
         let d = &self.device;
         let globals_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("world globals"),
@@ -833,7 +860,7 @@ impl Renderer {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: msaa(samples),
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs"),
@@ -903,7 +930,7 @@ impl Renderer {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: msaa(samples),
             fragment: Some(wgpu::FragmentState {
                 module: &sky_shader,
                 entry_point: Some("fs"),
@@ -968,7 +995,7 @@ impl Renderer {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: msaa(samples),
             fragment: Some(wgpu::FragmentState {
                 module: &liquid_shader,
                 entry_point: Some("fs"),
@@ -1325,18 +1352,37 @@ impl Renderer {
         w: &WorldView,
         assets: &mut dyn Assets,
     ) {
+        // (multisampling, T578: a new sample count makes the world's
+        // pipelines and targets anew)
+        let samples = samples_for(w.msaa);
+        if self.world.samples != samples {
+            let still = self.world.still_props;
+            self.world = World::default();
+            self.world.still_props = still;
+            self.world.samples = samples;
+        }
         let scale = w.render_scale;
         let size = (
             ((f64::from(width) * scale).round() as u32).max(1),
             ((f64::from(height) * scale).round() as u32).max(1),
         );
-        if size == (width, height) {
+        // (smoothed after (`ffxAntiAliasingMode`, T578): through the
+        // stretch too)
+        if size == (width, height) && w.post_aa == 0 {
             self.draw_world_at(encoder, view, width, height, height, w, assets);
             return;
         }
         let scaled = self.scaled_target(size);
         self.draw_world_at(encoder, &scaled.0, size.0, size.1, height, w, assets);
         let stretch = self.world.stretch.as_ref().expect("the stretch");
+        let how: [f32; 4] = [
+            1.0 / size.0 as f32,
+            1.0 / size.1 as f32,
+            w.post_aa as f32,
+            0.0,
+        ];
+        self.queue
+            .write_buffer(&stretch.how, 0, bytemuck::cast_slice(&how));
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("world stretched"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1365,7 +1411,20 @@ impl Renderer {
         let stretch = self.world.stretch.get_or_insert_with(|| {
             let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("world stretch"),
-                entries: &[texture_entry(0), sampler_entry(1)],
+                entries: &[
+                    texture_entry(0),
+                    sampler_entry(1),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
             });
             let pipeline_layout = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("world stretch"),
@@ -1407,10 +1466,17 @@ impl Renderer {
                 min_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             });
+            let how = d.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("world stretch"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
             Stretch {
                 pipeline,
                 layout,
                 sampler,
+                how,
             }
         });
         if self.world.scaled.as_ref().is_none_or(|s| s.size != size) {
@@ -1442,6 +1508,10 @@ impl Renderer {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&stretch.sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: stretch.how.as_entire_binding(),
+                    },
                 ],
             });
             self.world.scaled = Some(Scaled { view, group, size });
@@ -1466,6 +1536,9 @@ impl Renderer {
         w: &WorldView,
         assets: &mut dyn Assets,
     ) {
+        // (the samples `draw_world` chose: T578)
+        let samples = self.world.samples.max(1);
+        self.models.world_samples = samples;
         self.world_setup();
         if self
             .world
@@ -1481,7 +1554,7 @@ impl Renderer {
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: samples,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -1489,6 +1562,24 @@ impl Renderer {
             });
             let v = depth.create_view(&wgpu::TextureViewDescriptor::default());
             self.world.depth = Some((v, width, height));
+            self.world.msaa_color = (samples > 1).then(|| {
+                self.device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some("world msaa"),
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: samples,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: crate::FORMAT,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    })
+                    .create_view(&wgpu::TextureViewDescriptor::default())
+            });
         }
         // The tiles within the view distance of the eye: in full within
         // the detail distance, beyond it their coarse meshes (T525).
@@ -2109,6 +2200,12 @@ impl Renderer {
         self.queue
             .write_buffer(&setup.sky, 0, bytemuck::bytes_of(&sky_globals));
         let depth = &self.world.depth.as_ref().expect("the depth buffer").0;
+        // (with MSAA, T578: drawn into the multisampled target, resolved
+        // into the view at the end)
+        let (color, resolve) = match &self.world.msaa_color {
+            Some(c) => (c, Some(view)),
+            None => (view, None),
+        };
         let clear = wgpu::LoadOp::Clear(wgpu::Color {
             r: f64::from(fog[0]),
             g: f64::from(fog[1]),
@@ -2148,7 +2245,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("world sky"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: color,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -2176,9 +2273,9 @@ impl Renderer {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("world"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
+                view: color,
                 depth_slice: None,
-                resolve_target: None,
+                resolve_target: resolve,
                 ops: wgpu::Operations {
                     load: if sky_models.is_some() {
                         wgpu::LoadOp::Load
@@ -2515,6 +2612,8 @@ impl Renderer {
         if self.world.weather_setup.is_some() {
             return;
         }
+        // (the world's multisampling: T578)
+        let samples = self.world.samples;
         let d = &self.device;
         let layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("world weather"),
@@ -2558,7 +2657,7 @@ impl Renderer {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState::default(),
+            multisample: msaa(samples),
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs"),
@@ -2778,6 +2877,8 @@ impl Renderer {
         if self.world.building_setup.is_some() {
             return;
         }
+        // (the world's multisampling: T578)
+        let samples = self.world.samples;
         let d = &self.device;
         let globals_layout = &self
             .world
@@ -2850,7 +2951,7 @@ impl Renderer {
                         wgpu::DepthBiasState::default()
                     },
                 }),
-                multisample: wgpu::MultisampleState::default(),
+                multisample: if sun { msaa(1) } else { msaa(samples) },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(if sun { "fs_shadow" } else { "fs" }),
@@ -3395,6 +3496,8 @@ mod tests {
             shadows: Default::default(),
             weather: (0, 0.0),
             weather_density: 2.0,
+            msaa: 1,
+            post_aa: 0,
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);
