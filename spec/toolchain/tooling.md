@@ -356,6 +356,11 @@ addon loads:
 }
 ```
 
+`renown` maps faction IDs to numeric renown levels, including zero (for
+example, `"renown": { "2802": 16, "2507": 0 }`). It applies through
+`mock.setRenown` before the addon loads; an omitted or null part leaves the
+world's default renown unchanged.
+
 `screen` is the screen the client draws on, as the manifest's `test.screen`
 gives it and over it; a file's `config({ screen })` is over both (decision
 T482). Its UI scale turns "Use UI Scale" on, as the client's CVars read; it

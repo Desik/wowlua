@@ -209,6 +209,17 @@
         }
       ]
     },
+    "renown": {
+      "description": "Major factions' renown levels by faction ID (`mock.setRenown`).",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "number",
+        "format": "double"
+      }
+    },
     "units": {
       "description": "The units around: creatures and other players (`mock.spawnUnit`).",
       "anyOf": [

@@ -133,6 +133,8 @@ pub struct WorldProfile {
     pub weather: Option<Weather>,
     /// The character's auras (`mock.player:applyAura`).
     pub auras: Option<List<Aura>>,
+    /// Major factions' renown levels by faction ID (`mock.setRenown`).
+    pub renown: Option<BTreeMap<String, f64>>,
     /// The units around: creatures and other players (`mock.spawnUnit`).
     pub units: Option<List<WorldUnit>>,
     /// CVars by name.
@@ -963,6 +965,20 @@ mod tests {
   "savedVariables": { "MyAddonDB": { "logins": 41 } }
 }"#;
         assert_eq!(codes(example), Vec::<(String, String)>::new());
+    }
+
+    #[test]
+    fn profiles_accept_numeric_renown_by_faction() {
+        let text = r#"{ "renown": { "2802": 16, "2507": 0 } }"#;
+        assert!(codes(text).is_empty());
+        let profile: WorldProfile = serde_json::from_str(text).unwrap();
+        let renown = profile.renown.unwrap();
+        assert_eq!(renown["2802"], 16.0);
+        assert_eq!(renown["2507"], 0.0);
+        assert_eq!(
+            codes(r#"{ "renown": { "2802": "sixteen" } }"#)[0].0,
+            "E4401"
+        );
     }
 
     #[test]
