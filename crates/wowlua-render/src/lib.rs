@@ -392,6 +392,12 @@ impl Renderer {
         self.world.weather_drops
     }
 
+    /// The samples the 3D world was last drawn with (its MSAA, decision
+    /// T578): 1 without.
+    pub fn world_samples(&self) -> u32 {
+        self.world.samples
+    }
+
     /// A renderer on the first adapter there is (a software one when there
     /// is no GPU).
     pub async fn new() -> Result<Renderer, String> {

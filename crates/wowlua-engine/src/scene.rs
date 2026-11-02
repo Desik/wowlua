@@ -317,6 +317,24 @@ pub struct WorldView {
     /// (`weatherDensity`, 0 to 3).
     pub weather: (u32, f64),
     pub weather_density: f64,
+    /// Its edges smoothed (decision T578): multisampling's samples
+    /// (`MSAAQuality`: 0 none, else 2 to the power of its first number, as
+    /// "2,0"; unverified) and the image-based kind (`ffxAntiAliasingMode`:
+    /// 0 none, 1 FXAA Low, 2 FXAA High, 3 CMAA, 4 CMAA2).
+    pub msaa: u32,
+    pub post_aa: u32,
+}
+
+/// Multisampling's samples for an `MSAAQuality` value (decision T578): its
+/// first number `n` gives 2^n samples (1: 2x, 2: 4x, 3: 8x), 0 or nothing
+/// none (the format unverified).
+pub fn msaa_samples(value: &str) -> u32 {
+    let n: u32 = value
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if n == 0 { 1 } else { 1 << n.min(3) }
 }
 
 /// How the 3D world's shadows are drawn (decision T564): the game's
@@ -446,6 +464,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     };
     let weather = engine(vm).world.weather;
     let weather_density = setting(vm, "weatherDensity", 2.0).clamp(0.0, 3.0);
+    let msaa = msaa_samples(&crate::framescript::cvar_get(vm, "MSAAQuality").unwrap_or_default());
+    let post_aa = setting(vm, "ffxAntiAliasingMode", 0.0).clamp(0.0, 4.0) as u32;
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -473,6 +493,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         shadows,
         weather,
         weather_density,
+        msaa,
+        post_aa,
     })
 }
 
@@ -2618,4 +2640,16 @@ pub fn extent(vm: &Vm, id: WidgetId) -> Option<Rect> {
         stack.extend(engine(vm).world.widgets[c.0].children.iter().copied());
     }
     acc
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn msaa_quality_gives_its_samples() {
+        assert_eq!(super::msaa_samples("0"), 1);
+        assert_eq!(super::msaa_samples(""), 1);
+        assert_eq!(super::msaa_samples("1,0"), 2);
+        assert_eq!(super::msaa_samples("2,0"), 4);
+        assert_eq!(super::msaa_samples("3"), 8);
+    }
 }

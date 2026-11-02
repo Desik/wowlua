@@ -28,7 +28,7 @@ their clients answer differently is unverified.
   them (98.1%).
 - **Scenario replays:** 22,097 of 22,154 recorded lines replayed as the client
   logged them (99.7%); 25 of 29 scenarios line for line.
-- **Unverified rules:** 1,184 comments in the engine mark a rule unverified.
+- **Unverified rules:** 1,186 comments in the engine mark a rule unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
@@ -844,7 +844,7 @@ read-back counts for its setter), from the test's misses
 
 ## Unverified rules
 
-The engine's code marks 1,184 rules unverified: each rests on Blizzard's
+The engine's code marks 1,186 rules unverified: each rests on Blizzard's
 documentation or UI code, warcraft.wiki.gg, elune or the function's name, not on
 a probe of the client. An in-game probe confirms or corrects each
 ([probes](../tests/ingame/PROBES.md)). Each line is the marking comment's first
@@ -1932,9 +1932,11 @@ page changes only when a rule is added, removed or reworded.
 - [replies.rs](../crates/wowlua-engine/src/replies.rs): `C_ChatInfo.PerformEmote(emote, target)`: false, the emote not restricted (Blizzard's chat box reads the answer so: a...
 - [replies.rs](../crates/wowlua-engine/src/replies.rs): `C_GuildInfo.Invite(name)`, `GuildInvite(name)` (`/ginvite`): the world has no one else to invite, so the server's "n...
 
-### scene (11)
+### scene (13)
 
 - [scene.rs](../crates/wowlua-engine/src/scene.rs): Whether pitch and roll turn about the view's fixed axes after the facing (a model frame's: probed in WoW Forever, 202...
+- [scene.rs](../crates/wowlua-engine/src/scene.rs): Its edges smoothed (decision T578): multisampling's samples (`MSAAQuality`: 0 none, else 2 to the power of its first...
+- [scene.rs](../crates/wowlua-engine/src/scene.rs): Multisampling's samples for an `MSAAQuality` value (decision T578): its first number `n` gives 2^n samples (1: 2x, 2:...
 - [scene.rs](../crates/wowlua-engine/src/scene.rs): A message frame's messages, as the client shows them: newest at the bottom of the frame, each wrapped to its width, o...
 - [scene.rs](../crates/wowlua-engine/src/scene.rs): The light of a model frame (`SetLight`) or scene (`SetLightDirection`, …); else a light from the front above (unverif...
 - [scene.rs](../crates/wowlua-engine/src/scene.rs): A minimap's mask: the one `SetMaskTexture` set (an atlas or a file), stretched over the minimap; none set, none (unve...

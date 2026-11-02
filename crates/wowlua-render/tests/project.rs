@@ -26,6 +26,8 @@ fn north() -> WorldView {
         shadows: Default::default(),
         weather: (0, 0.0),
         weather_density: 2.0,
+        msaa: 1,
+        post_aa: 0,
     }
 }
 
