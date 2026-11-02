@@ -529,7 +529,6 @@ pub const EMPTY_METHODS: &[&str] = &[
     "Frame:AddRoleset",
     "Frame:CreateVectorGraphics",
     "Frame:DesaturateHierarchy",
-    "Frame:DisableDrawLayer",
     "Frame:RegisterUnitEventCallback",
     "Frame:RemoveRoleset",
     "Frame:ResizeToBoundsRect",

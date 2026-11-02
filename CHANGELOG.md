@@ -31,6 +31,12 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 - `wowlua publish` with a missing or wrong token now shows the registry's reason on Windows, not a connection error.
 - Aura containers (`CustomAuraContainerTemplate`, `aura.container`) on WoW Forever show only the auras the unit has: every one of their buttons showed, empty, so a player without debuffs looked as if they had Magic, Curse, Poison and Disease debuffs.
 
+### Fixed
+
+- `GetNumRegions()` counts a frame's current regions, including hidden regions, rather than returning a fresh frame's recorded count.
+- `DisableDrawLayer` and `EnableDrawLayer` hide and restore a frame's draw layers without changing its regions' shown state or its child frames' layers.
+- Clearing texture artwork with file ID `0` no longer draws missing-texture placeholders.
+
 ## 0.13.8 (2026-11-01)
 
 ### New
