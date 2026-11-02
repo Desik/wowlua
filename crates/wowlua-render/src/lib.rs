@@ -398,6 +398,12 @@ impl Renderer {
         self.world.samples
     }
 
+    /// The props' instances drawn into the sun's shadow maps in the 3D
+    /// world's last frame (decision T581): those reaching into each map.
+    pub fn world_sun_props(&self) -> usize {
+        self.world.sun_props
+    }
+
     /// A renderer on the first adapter there is (a software one when there
     /// is no GPU).
     pub async fn new() -> Result<Renderer, String> {

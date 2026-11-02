@@ -550,10 +550,12 @@ mock.advanceFrames(2, 1000 / 60)",
         let image = r
             .render_blocking(&scene, 1.0, None, &mut assets)
             .expect("drawn");
-        // (a few more frames while the player's model is still being read)
+        // (more frames while the player's model is still being read: up to
+        // 20 seconds, a busy machine reads slowly)
         let wanted = if flavor == "camelot" { (0, 3) } else { (1, 0) };
         let mut image = image;
-        for _ in 0..10 {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while std::time::Instant::now() < until {
             if (r.world_blobs(), r.world_sun_maps()) == wanted {
                 break;
             }
@@ -698,6 +700,160 @@ mock.advanceFrames(2, 1000 / 60)",
             .expect("written");
         }
     }
+}
+
+/// Sharper terrain (decision T579): the game's texture filtering
+/// (`textureFilteringMode`, its default 5: 16x anisotropic) sharpens the
+/// ground far ahead, and its shine (`specular`) lights it where its
+/// layers' alphas say.
+#[test]
+fn the_ground_is_sharp_and_shines() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+C_CVar.SetCVar('ffxAntiAliasingMode', '0')
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut shot = |vm: &mut Vm, settings: &str| {
+        run(vm, settings);
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn")
+    };
+    let sharp = shot(
+        &mut vm,
+        "C_CVar.SetCVar('textureFilteringMode', '5') C_CVar.SetCVar('specular', '1')",
+    );
+    let blurred = shot(&mut vm, "C_CVar.SetCVar('textureFilteringMode', '1')");
+    let dull = shot(
+        &mut vm,
+        "C_CVar.SetCVar('textureFilteringMode', '5') C_CVar.SetCVar('specular', '0')",
+    );
+    let differ = |a: &wowlua_render::Rgba, b: &wowlua_render::Rgba| {
+        a.pixels
+            .chunks(4)
+            .zip(b.pixels.chunks(4))
+            .filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 8))
+            .count()
+    };
+    let (by_filtering, by_shine) = (differ(&sharp, &blurred), differ(&sharp, &dull));
+    eprintln!("filtering changed {by_filtering} pixels, the shine {by_shine}");
+    assert!(
+        by_filtering > 1000 && by_shine > 1000,
+        "{by_filtering}, {by_shine}"
+    );
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        for (name, image) in [("sharp", &sharp), ("blurred", &blurred), ("dull", &dull)] {
+            let png = wowlua_render::encode_png(image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(&dir).join(format!("ground-{name}.png")),
+                png,
+            )
+            .expect("written");
+        }
+    }
+}
+
+/// The far horizon (decision T580): the coarse terrain reaches past the
+/// view distance (`farclip`) to `horizonClip`, the mountains beyond the
+/// valley drawn where the sky was.
+#[test]
+fn the_horizon_reaches_past_the_view_distance() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    // (Goldshire's crossroads, looking south over Elwynn)
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -9464, x = 62, z = 0, instanceID = 0 }, facing = math.pi })
+C_CVar.SetCVar('farclip', '600')
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut shot = |vm: &mut Vm, settings: &str| {
+        run(vm, settings);
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn")
+    };
+    let near = shot(&mut vm, "C_CVar.SetCVar('horizonClip', '600')");
+    let far = shot(&mut vm, "C_CVar.SetCVar('horizonClip', '2400')");
+    let differ = near
+        .pixels
+        .chunks(4)
+        .zip(far.pixels.chunks(4))
+        .filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 8))
+        .count();
+    eprintln!("the horizon changed {differ} pixels");
+    assert!(differ > 1000, "{differ}");
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        for (name, image) in [("near", &near), ("far", &far)] {
+            let png = wowlua_render::encode_png(image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(&dir).join(format!("horizon-{name}.png")),
+                png,
+            )
+            .expect("written");
+        }
+    }
+}
+
+/// Indoors and the sun's maps (decision T581): no rain falls with the eye
+/// inside the abbey (an indoor group), outside it does; the sun's maps draw
+/// only the props reaching into them, fewer than every prop in each map.
+#[test]
+fn no_rain_falls_indoors_and_the_sun_draws_what_it_sees() {
+    let (Some((mut vm, casc)), Some((n, w, _))) = (session_and_casc(), abbey()) else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    let mut drops_at = |vm: &mut Vm, place: &str| {
+        run(
+            vm,
+            &format!(
+                "mock.moveTo({{ world = {{ {place}, z = 0, instanceID = 0 }}, facing = 0 }})
+mock.setWeather('rain', 1)
+CameraZoomIn(GetCameraZoom())
+mock.advanceFrames(30, 1000 / 60)"
+            ),
+        );
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        (r.world_weather_drops(), r.world_sun_props())
+    };
+    let (inside, _) = drops_at(&mut vm, &format!("y = {n}, x = {w}"));
+    let (outside, sun_props) = drops_at(&mut vm, "y = -8949.95, x = -132.493");
+    eprintln!("inside {inside} drops, outside {outside}; {sun_props} props in the sun's maps");
+    assert_eq!(inside, 0);
+    assert!(outside > 100, "{outside}");
+    assert!(sun_props > 0, "{sun_props}");
 }
 
 /// The world's units posed on the GPU look as posed on the CPU (decision

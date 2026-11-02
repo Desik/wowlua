@@ -61,7 +61,13 @@ struct Globals {
     shadow_texels: [f32; 4],
     shadow: [f32; 4],
     look: [f32; 4],
+    /// The terrain's shine (decision T579): x on (`specular`), y its
+    /// exponent.
+    terrain: [f32; 4],
 }
+
+/// The terrain's shine's exponent (decision T579; unverified).
+const TERRAIN_SHINE: f32 = 20.0;
 
 /// The game's blob shadow (`textures/shadowblob.blp`, decision T563).
 const BLOB_FILE: u32 = 186_183;
@@ -296,6 +302,26 @@ fn cascades(
 }
 
 impl Renderer {
+    /// Whether the eye is inside a placed building's indoor group (decision
+    /// T581): the eye in the building's own space (its placement's axes,
+    /// scaled) within the group's bounds.
+    fn eye_indoors(&self, placed: &[(u32, [f32; 16])], eye: [f64; 3]) -> bool {
+        placed.iter().any(|(file, m)| {
+            let Some(Some(b)) = self.world.buildings.get(file) else {
+                return false;
+            };
+            let d = [0, 1, 2].map(|r| eye[r] - f64::from(m[12 + r]));
+            let local = [0, 1, 2].map(|k| {
+                let a = [m[k * 4], m[k * 4 + 1], m[k * 4 + 2]].map(f64::from);
+                let len2 = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).max(1e-9);
+                (d[0] * a[0] + d[1] * a[1] + d[2] * a[2]) / len2
+            });
+            b.groups.iter().filter_map(|g| g.indoor).any(|[lo, hi]| {
+                (0..3).all(|k| local[k] >= f64::from(lo[k]) && local[k] <= f64::from(hi[k]))
+            })
+        })
+    }
+
     /// Draws the sun's shadow maps (decision T564), each the depth it sees
     /// in its box: by `shadowMode`, the units (1), the buildings and props
     /// (2), the ground (3 and up).
@@ -307,7 +333,7 @@ impl Renderer {
         maps: &[Cascade],
         detailed: &[(i32, i32)],
         placed: &[(u32, [f32; 16])],
-        doodad_ranges: &[(u32, u32, u32)],
+        sun_ranges: &[Vec<(u32, u32, u32)>],
         models: Option<&crate::model::WorldModels>,
         model_groups: &[wgpu::BindGroup],
     ) {
@@ -392,12 +418,16 @@ impl Renderer {
                         }
                     }
                 }
-                for &(file, first, count) in doodad_ranges {
+                // (the props reaching into its box only: T581)
+                let Some((sun_instances, _)) = self.world.sun_instances.as_ref() else {
+                    continue;
+                };
+                for &(file, first, count) in sun_ranges.get(k).map_or(&[][..], |r| &r[..]) {
                     let Some(Some(d)) = self.world.doodads.get(&file) else {
                         continue;
                     };
                     let (at, end) = (u64::from(first) * 64, u64::from(first + count) * 64);
-                    pass.set_vertex_buffer(1, instances.slice(at..end));
+                    pass.set_vertex_buffer(1, sun_instances.slice(at..end));
                     pass.set_vertex_buffer(0, d.vertices.slice(..));
                     pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
                     for batch in d.batches.iter().filter(|b| !b.blended) {
@@ -525,6 +555,8 @@ struct Setup {
     compare: wgpu::Sampler,
     chunk_layout: wgpu::BindGroupLayout,
     tiled: wgpu::Sampler,
+    /// The terrain's layers' (T579): as `tiled`, from `terrainMipLevel`.
+    terrain: wgpu::Sampler,
     clamped: wgpu::Sampler,
 }
 
@@ -536,6 +568,9 @@ pub(crate) struct World {
     /// The samples the world's pipelines and targets have (its MSAA,
     /// decision T578; 0 before the first frame).
     pub(crate) samples: u32,
+    /// Its samplers' filtering and the terrain's textures' detail
+    /// (`textureFilteringMode`, `terrainMipLevel`; decision T579).
+    textures: (u32, u32),
     /// The multisampled color target the world draws into with MSAA, the
     /// depth buffer's size.
     msaa_color: Option<wgpu::TextureView>,
@@ -569,6 +604,11 @@ pub(crate) struct World {
     identity: Option<wgpu::Buffer>,
     /// The placements' matrices of a draw, and the buffer's size.
     instances: Option<(wgpu::Buffer, u64)>,
+    /// The props' placements each of the sun's maps draws, and the
+    /// buffer's size (T581).
+    sun_instances: Option<(wgpu::Buffer, u64)>,
+    /// The props' instances drawn into the sun's maps in the last frame.
+    pub(crate) sun_props: usize,
     /// What stretches the world drawn at another scale to the screen, and
     /// the texture it is drawn into (decision T539).
     stretch: Option<Stretch>,
@@ -591,6 +631,31 @@ pub(crate) fn msaa(count: u32) -> wgpu::MultisampleState {
         count: count.max(1),
         ..Default::default()
     }
+}
+
+/// A repeating sampler as the game's texture filtering says (decision
+/// T579, `textureFilteringMode`): 0 bilinear, 1 trilinear, 2 to 5
+/// anisotropic 2x to 16x; from mip `min_lod` (`terrainMipLevel`).
+fn world_sampler(d: &wgpu::Device, filtering: u32, min_lod: f32) -> wgpu::Sampler {
+    d.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("world"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: if filtering == 0 {
+            wgpu::MipmapFilterMode::Nearest
+        } else {
+            wgpu::MipmapFilterMode::Linear
+        },
+        lod_min_clamp: min_lod,
+        anisotropy_clamp: if filtering >= 2 {
+            1 << (filtering - 1).min(4)
+        } else {
+            1
+        },
+        ..Default::default()
+    })
 }
 
 /// The samples the world draws with for multisampling's (decision T578):
@@ -1112,7 +1177,8 @@ impl Renderer {
             no_maps,
             compare,
             chunk_layout,
-            tiled: sampler(wgpu::AddressMode::Repeat),
+            tiled: world_sampler(d, self.world.textures.0, 0.0),
+            terrain: world_sampler(d, self.world.textures.0, self.world.textures.1 as f32),
             clamped,
         });
     }
@@ -1205,7 +1271,7 @@ impl Renderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 5,
-                            resource: wgpu::BindingResource::Sampler(&setup.tiled),
+                            resource: wgpu::BindingResource::Sampler(&setup.terrain),
                         },
                         wgpu::BindGroupEntry {
                             binding: 6,
@@ -1354,12 +1420,15 @@ impl Renderer {
     ) {
         // (multisampling, T578: a new sample count makes the world's
         // pipelines and targets anew)
+        // (and the texture settings, T579: samplers anew)
         let samples = samples_for(w.msaa);
-        if self.world.samples != samples {
+        let textures = (w.filtering, w.terrain_mip);
+        if self.world.samples != samples || self.world.textures != textures {
             let still = self.world.still_props;
             self.world = World::default();
             self.world.still_props = still;
             self.world.samples = samples;
+            self.world.textures = textures;
         }
         let scale = w.render_scale;
         let size = (
@@ -1584,7 +1653,9 @@ impl Renderer {
         // The tiles within the view distance of the eye: in full within
         // the detail distance, beyond it their coarse meshes (T525).
         let (cx, cy) = adt::tile_of(w.eye[0], w.eye[1]);
-        let reach = (w.far / TILE).ceil() as i32;
+        // (the coarse terrain to the horizon, T580)
+        let horizon = w.horizon.max(w.far);
+        let reach = (horizon / TILE).ceil() as i32;
         let (mut detailed, mut distant, mut near) = (Vec::new(), Vec::new(), Vec::new());
         for y in cy - reach..=cy + reach {
             for x in cx - reach..=cx + reach {
@@ -1593,7 +1664,7 @@ impl Renderer {
                 let dn = (w.eye[0] - w.eye[0].clamp(n - TILE, n)).abs();
                 let dw = (w.eye[1] - w.eye[1].clamp(wst - TILE, wst)).abs();
                 let d = dn.hypot(dw);
-                if d > w.far {
+                if d > horizon {
                     continue;
                 }
                 if d <= w.detail {
@@ -1857,7 +1928,8 @@ impl Renderer {
         let f32s = |a: [f64; 3]| [a[0] as f32, a[1] as f32, a[2] as f32];
         // The place's light at the realm's time of day (T555), else a plain
         // sky and sun.
-        let far = w.far as f32;
+        // (the view and its fog to the horizon: T580)
+        let far = w.horizon.max(w.far) as f32;
         // (the weather's storm set blended in by its intensity, as the
         // game: T565)
         let mut light = assets.light(w.map, w.eye, w.day_time, LightKind::Clear);
@@ -1967,6 +2039,58 @@ impl Renderer {
             _ => Vec::new(),
         };
         self.world.sun_maps = sun_maps.len();
+        // The props each of the sun's maps draws (T581): those whose ball
+        // (the model's radius, by its placement's scale) reaches into its
+        // box, every map's after the other in one buffer.
+        let mut sun_ranges: Vec<Vec<(u32, u32, u32)>> = Vec::new();
+        self.world.sun_props = 0;
+        if w.shadows.mode >= 2 && !sun_maps.is_empty() {
+            let mut sun_matrices: Vec<[f32; 16]> = Vec::new();
+            let radii: HashMap<u32, f64> = doodad_ranges
+                .iter()
+                .map(|&(file, _, _)| (file, self.model_radius(file, assets).map_or(1.0, f64::from)))
+                .collect();
+            for c in &sun_maps {
+                let mut ranges = Vec::new();
+                for &(file, first, count) in &doodad_ranges {
+                    let start = sun_matrices.len() as u32;
+                    for m in &matrices[first as usize..(first + count) as usize] {
+                        let scale = f64::from((m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt());
+                        let at = [m[12], m[13], m[14]].map(f64::from);
+                        if c.covers(at, radii[&file] * scale) {
+                            sun_matrices.push(*m);
+                        }
+                    }
+                    let n = sun_matrices.len() as u32 - start;
+                    if n > 0 {
+                        ranges.push((file, start, n));
+                    }
+                }
+                sun_ranges.push(ranges);
+            }
+            self.world.sun_props = sun_matrices.len();
+            if !sun_matrices.is_empty() {
+                let bytes: &[u8] = bytemuck::cast_slice(&sun_matrices);
+                let len = bytes.len() as u64;
+                if self
+                    .world
+                    .sun_instances
+                    .as_ref()
+                    .is_none_or(|(_, size)| *size < len)
+                {
+                    let size = len.next_power_of_two().max(4096);
+                    let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("sun placements"),
+                        size,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    self.world.sun_instances = Some((buffer, size));
+                }
+                let (buffer, _) = self.world.sun_instances.as_ref().expect("the buffer");
+                self.queue.write_buffer(buffer, 0, bytes);
+            }
+        }
         let mut shadow_mats = [[0.0f32; 16]; 4];
         let (mut shadow_ends, mut shadow_texels) = ([0.0f32; 4], [0.0f32; 4]);
         for (k, c) in sun_maps.iter().enumerate() {
@@ -1976,7 +2100,7 @@ impl Renderer {
         }
         let globals = Globals {
             view: crate::model::look_at(f32s(w.eye), f32s(w.look), f32s(w.up)),
-            proj: crate::model::perspective(fov_y, aspect, NEAR, w.far as f32),
+            proj: crate::model::perspective(fov_y, aspect, NEAR, far),
             sun,
             fog: [fog[0], fog[1], fog[2], fog_start],
             eye: [w.eye[0] as f32, w.eye[1] as f32, w.eye[2] as f32, fog_end],
@@ -2001,9 +2125,16 @@ impl Renderer {
                 let l = f32s(w.look);
                 [l[0], l[1], l[2], 0.0]
             },
+            terrain: [f32::from(u8::from(w.specular)), TERRAIN_SHINE, 0.0, 0.0],
         };
         // The weather (T565): what falls, how much, lit by the light.
-        let drops = self.world_weather(w, &globals, direct, ambient, assets);
+        let drops = if self.eye_indoors(&placed, w.eye) {
+            // (under a roof: none falls, T581)
+            self.world.weather_drops = 0;
+            0
+        } else {
+            self.world_weather(w, &globals, direct, ambient, assets)
+        };
         let sky_globals = {
             let l = f32s(w.look);
             let u = f32s(w.up);
@@ -2234,7 +2365,7 @@ impl Renderer {
                 &sun_maps,
                 &detailed,
                 &placed,
-                &doodad_ranges,
+                &sun_ranges,
                 models.as_ref(),
                 &groups,
             );
@@ -2820,6 +2951,9 @@ struct GpuGroup {
     /// space (what the view must see of it, T538).
     middle: [f32; 3],
     reach: f32,
+    /// Its bounds in the building's own space where it is indoors (its
+    /// flags: T581), else none.
+    indoor: Option<[[f32; 3]; 2]>,
 }
 
 /// A building on the GPU: its groups, drawn wherever it is placed.
@@ -3097,6 +3231,7 @@ impl Renderer {
                     batches,
                     middle: [lo[0] + half[0], lo[1] + half[1], lo[2] + half[2]],
                     reach: (half[0] * half[0] + half[1] * half[1] + half[2] * half[2]).sqrt(),
+                    indoor: indoors.then_some(g.bounds),
                 });
             }
             GpuBuilding { groups }
@@ -3498,6 +3633,10 @@ mod tests {
             weather_density: 2.0,
             msaa: 1,
             post_aa: 0,
+            filtering: 5,
+            specular: true,
+            terrain_mip: 0,
+            horizon: 1000.0,
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);

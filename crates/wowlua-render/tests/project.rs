@@ -28,6 +28,10 @@ fn north() -> WorldView {
         weather_density: 2.0,
         msaa: 1,
         post_aa: 0,
+        filtering: 5,
+        specular: true,
+        terrain_mip: 0,
+        horizon: 1000.0,
     }
 }
 

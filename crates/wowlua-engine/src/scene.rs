@@ -323,6 +323,16 @@ pub struct WorldView {
     /// 0 none, 1 FXAA Low, 2 FXAA High, 3 CMAA, 4 CMAA2).
     pub msaa: u32,
     pub post_aa: u32,
+    /// Its textures (decision T579): their filtering
+    /// (`textureFilteringMode`: 0 bilinear, 1 trilinear, 2 to 5 anisotropic
+    /// 2x to 16x), the terrain's shine (`specular`) and its textures'
+    /// detail (`terrainMipLevel`: how many of their largest sizes skipped).
+    pub filtering: u32,
+    pub specular: bool,
+    pub terrain_mip: u32,
+    /// How far its coarse terrain reaches (yards, `horizonClip`; decision
+    /// T580): past `far` to the horizon, at least `far`.
+    pub horizon: f64,
 }
 
 /// Multisampling's samples for an `MSAAQuality` value (decision T578): its
@@ -466,6 +476,10 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     let weather_density = setting(vm, "weatherDensity", 2.0).clamp(0.0, 3.0);
     let msaa = msaa_samples(&crate::framescript::cvar_get(vm, "MSAAQuality").unwrap_or_default());
     let post_aa = setting(vm, "ffxAntiAliasingMode", 0.0).clamp(0.0, 4.0) as u32;
+    let filtering = setting(vm, "textureFilteringMode", 1.0).clamp(0.0, 5.0) as u32;
+    let specular = setting(vm, "specular", 1.0) != 0.0;
+    let terrain_mip = setting(vm, "terrainMipLevel", 0.0).clamp(0.0, 4.0) as u32;
+    let horizon = setting(vm, "horizonClip", far).max(far);
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -495,6 +509,10 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         weather_density,
         msaa,
         post_aa,
+        filtering,
+        specular,
+        terrain_mip,
+        horizon,
     })
 }
 
