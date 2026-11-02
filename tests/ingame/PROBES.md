@@ -1110,3 +1110,13 @@ now.
    2. `/run local n=0 for k in pairs(_G) do if type(k)=="string" and k:find("^LE_GAME_ERR_") then n=n+1 end end print(n)`
 
    wowlua: `nil nil nil` and `0`. Recorded: (to do)
+
+## The world's motion (decision T558)
+
+Look, do not run anything: on WoW Forever, stand at Northshire Abbey on a
+clear day and watch the trees and bushes about it for ten seconds.
+
+1. **Trees in the wind**: do their leaves or branches sway?
+
+   wowlua: they stand still (their models have no animation; a sway in
+   the game would be the shaders' wind). Seen: (to do)
