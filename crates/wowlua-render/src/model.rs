@@ -63,6 +63,8 @@ pub(crate) struct SkinDraw {
     end: u32,
     blend: u16,
     depth_write: bool,
+    /// An actor's faded by the camera's closeness (T562): its depth first.
+    faded: bool,
     tex: [usize; 3],
     record: Record,
 }
@@ -246,11 +248,16 @@ pub(crate) struct WorldModels {
     skinned: Option<(wgpu::BindGroup, Vec<SkinDraw>)>,
 }
 
+/// The pipeline key's blend for a faded actor's depth alone (T562).
+const DEPTH_ONLY: u16 = u16::MAX;
+
 /// A batch to draw: its indices' range and how.
 #[derive(Clone)]
 pub(crate) struct Draw {
     blend: u16,
     depth_write: bool,
+    /// An actor's faded by the camera's closeness (T562): its depth first.
+    faded: bool,
     tex: [usize; 3],
     start: u32,
     end: u32,
@@ -483,7 +490,12 @@ impl Renderer {
             .pipelines
             .entry((blend, depth_write, skinned))
             .or_insert_with(|| {
-                let state = blend_state(blend);
+                // (a faded actor's depth alone: T562)
+                let (state, mask) = if blend == DEPTH_ONLY {
+                    (None, wgpu::ColorWrites::empty())
+                } else {
+                    (blend_state(blend), wgpu::ColorWrites::ALL)
+                };
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("model"),
                     layout: Some(layout),
@@ -521,7 +533,7 @@ impl Renderer {
                         targets: &[Some(wgpu::ColorTargetState {
                             format: crate::FORMAT,
                             blend: state,
-                            write_mask: wgpu::ColorWrites::ALL,
+                            write_mask: mask,
                         })],
                     }),
                     multiview_mask: None,
@@ -1052,6 +1064,7 @@ impl Renderer {
                 _ => draws.push(Draw {
                     blend: sp.blend,
                     depth_write: false,
+                    faded: false,
                     tex,
                     start,
                     end: indices.len() as u32,
@@ -1214,9 +1227,15 @@ impl Renderer {
         };
         for d in &p.draws {
             self.model_pipeline(d.blend.min(7), d.depth_write, false);
+            if d.faded {
+                self.model_pipeline(DEPTH_ONLY, true, false);
+            }
         }
         for d in &skin_draws {
             self.model_pipeline(d.blend.min(7), d.depth_write, true);
+            if d.faded {
+                self.model_pipeline(DEPTH_ONLY, true, true);
+            }
         }
         let skinned = match (&self.models.skin_layout, skin_draws.is_empty()) {
             (Some(Some((layout, _))), false) => {
@@ -1269,35 +1288,50 @@ impl Renderer {
     /// Draws the world's models into its pass: the ones posed on the CPU,
     /// then the ones the GPU poses (each batch its record, the draw's
     /// instance; decision T540).
+    ///
+    /// The actors the camera's closeness fades come last (T562): their
+    /// depth first, then their colors over their nearest surfaces only, so
+    /// one fades whole and what is behind it shows through.
     pub(crate) fn record_models<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, m: &'a WorldModels) {
-        pass.set_bind_group(0, &m.group, &[]);
-        if let (Some(vertices), Some(indices)) = (&m.vertices, &m.indices) {
-            pass.set_vertex_buffer(0, vertices.slice(..));
-            pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-            for d in &m.draws {
-                pass.set_pipeline(&self.models.pipelines[&(d.blend.min(7), d.depth_write, false)]);
-                pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
-                pass.draw_indexed(d.start..d.end, 0, 0..1);
-            }
-        }
-        let Some((group, draws)) = &m.skinned else {
-            return;
-        };
-        pass.set_bind_group(2, group, &[]);
-        let mut bound = None;
-        for (i, d) in draws.iter().enumerate() {
-            let Some((vertices, indices)) = self.models.meshes.get(&d.file) else {
-                continue;
+        // (0: the others; 1: the faded's depth; 2: the faded's colors)
+        for step in 0..3 {
+            let wanted = |faded: bool| (step == 0) != faded;
+            let key = |blend: u16, depth_write: bool, skinned: bool| {
+                if step == 1 {
+                    (DEPTH_ONLY, true, skinned)
+                } else {
+                    (blend.min(7), depth_write, skinned)
+                }
             };
-            if bound != Some(d.file) {
+            pass.set_bind_group(0, &m.group, &[]);
+            if let (Some(vertices), Some(indices)) = (&m.vertices, &m.indices) {
                 pass.set_vertex_buffer(0, vertices.slice(..));
                 pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-                bound = Some(d.file);
+                for d in m.draws.iter().filter(|d| wanted(d.faded)) {
+                    pass.set_pipeline(&self.models.pipelines[&key(d.blend, d.depth_write, false)]);
+                    pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
+                    pass.draw_indexed(d.start..d.end, 0, 0..1);
+                }
             }
-            pass.set_pipeline(&self.models.pipelines[&(d.blend.min(7), d.depth_write, true)]);
-            pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
-            let i = i as u32;
-            pass.draw_indexed(d.start..d.end, 0, i..i + 1);
+            let Some((group, draws)) = &m.skinned else {
+                continue;
+            };
+            pass.set_bind_group(2, group, &[]);
+            let mut bound = None;
+            for (i, d) in draws.iter().enumerate().filter(|(_, d)| wanted(d.faded)) {
+                let Some((vertices, indices)) = self.models.meshes.get(&d.file) else {
+                    continue;
+                };
+                if bound != Some(d.file) {
+                    pass.set_vertex_buffer(0, vertices.slice(..));
+                    pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+                    bound = Some(d.file);
+                }
+                pass.set_pipeline(&self.models.pipelines[&key(d.blend, d.depth_write, true)]);
+                pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
+                let i = i as u32;
+                pass.draw_indexed(d.start..d.end, 0, i..i + 1);
+            }
         }
     }
 
@@ -1455,11 +1489,19 @@ impl Renderer {
             let (pixel, vertex) = crate::combiners::shaders(batch.shader, batch.texture_count);
             let uv_m = m.uv_transform(&batch, seq, time);
             let uv2_m = m.uv_transform_of(&batch, 1, seq, time);
-            let mut flags = u32::from(mat.blend.min(255)) << 8;
+            // (a faded actor's opaque parts blended, its alpha seen: the
+            // camera close to a unit, decision T562)
+            let faded = actor.alpha < 0.999;
+            let blend = if faded && mat.blend <= 1 {
+                2
+            } else {
+                mat.blend
+            };
+            let mut flags = u32::from(blend.min(255)) << 8;
             if mat.flags & 1 != 0 {
                 flags |= UNLIT;
             }
-            match mat.blend {
+            match blend {
                 0 => flags |= OPAQUE,
                 1 => flags |= ALPHA_KEY,
                 _ => {}
@@ -1474,8 +1516,9 @@ impl Renderer {
                         file: part.file,
                         start: first as u32,
                         end: end as u32,
-                        blend: mat.blend,
-                        depth_write: mat.blend <= 1 && mat.flags & 0x10 == 0,
+                        blend,
+                        depth_write: !faded && mat.blend <= 1 && mat.flags & 0x10 == 0,
+                        faded,
                         tex,
                         record: Record {
                             world: part_world,
@@ -1547,8 +1590,9 @@ impl Renderer {
             let end = indices.len() as u32;
             if end > start {
                 draws.push(Draw {
-                    blend: mat.blend,
-                    depth_write: mat.blend <= 1 && mat.flags & 0x10 == 0,
+                    blend,
+                    depth_write: !faded && mat.blend <= 1 && mat.flags & 0x10 == 0,
+                    faded,
                     tex,
                     start,
                     end,

@@ -119,6 +119,19 @@ const SUN: [f32; 4] = [0.35, 0.25, 0.9, 0.45];
 const FOG_START: f32 = 0.55;
 /// The nearest the camera draws (yards).
 const NEAR: f32 = 0.2;
+/// A unit as seen by an eye close to it (decision T562): invisible with
+/// the eye inside its body (within 0.4 yards of its upright line, 2.2
+/// yards from its feet), fading in over the next half yard, else whole:
+/// only a very close camera fades it (the distances unverified).
+fn near_fade(eye: [f64; 3], at: [f64; 3]) -> f32 {
+    const BODY: f64 = 0.4;
+    const FADE: f64 = 0.5;
+    const HEIGHT: f64 = 2.2;
+    let z = eye[2].clamp(at[2], at[2] + HEIGHT);
+    let d = ((eye[0] - at[0]).powi(2) + (eye[1] - at[1]).powi(2) + (eye[2] - z).powi(2)).sqrt();
+    ((d - BODY) / FADE).clamp(0.0, 1.0) as f32
+}
+
 /// How much of the light a shadow takes with no light tables
 /// (decision T563).
 const SHADOW: f32 = 0.4;
@@ -1455,7 +1468,7 @@ impl Renderer {
                 roll: 0.0,
                 fixed_axes: false,
                 scale: 1.0,
-                alpha: 1.0,
+                alpha: near_fade(w.eye, u.at),
                 animation: u.animation,
                 variation: 0,
                 placement: None,
@@ -2515,6 +2528,18 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_unit_fades_as_the_eye_comes_in() {
+        let at = [0.0, 0.0, 0.0];
+        assert_eq!(near_fade([5.0, 0.0, 1.5], at), 1.0);
+        assert_eq!(near_fade([0.2, 0.0, 1.5], at), 0.0);
+        assert!((near_fade([0.65, 0.0, 1.5], at) - 0.5).abs() < 1e-6);
+        assert_eq!(near_fade([1.2, 0.0, 1.5], at), 1.0);
+        // (above its head)
+        assert_eq!(near_fade([0.0, 0.0, 2.4], at), 0.0);
+        assert_eq!(near_fade([0.0, 0.0, 4.0], at), 1.0);
+    }
 
     #[test]
     fn a_chunk_s_baked_shadow_is_its_blend_s_alpha() {

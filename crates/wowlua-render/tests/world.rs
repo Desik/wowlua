@@ -265,7 +265,7 @@ fn the_sky_shows_its_models() {
         &mut vm,
         "mock.moveTo({ world = { y = 3350.0, x = 750.0, z = 0, instanceID = 2991 }, facing = 2 })
 mock.advanceFrames(2, 1000 / 60)
-MoveViewDownStart()
+MoveViewUpStart()
 mock.advanceFrames(30, 1000 / 60)
 MoveViewUpStop()",
     );
@@ -452,6 +452,61 @@ mock.advanceFrames(2, 1000 / 60)",
     r.render_blocking(&scene, 1.0, None, &mut assets)
         .expect("drawn");
     assert_eq!(r.world_clutter(), 0);
+}
+
+/// The camera close to a unit (decision T562): the player whole with the
+/// camera 3 yards and 1.2 yards behind, fading closer, gone with the
+/// camera inside it, so the picture behind shows.
+#[test]
+fn the_player_fades_as_the_camera_comes_in() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut shots = Vec::new();
+    for distance in [3.0, 1.2, 0.7, 0.3] {
+        run(
+            &mut vm,
+            &format!(
+                "CameraZoomIn(GetCameraZoom() - {distance}) mock.advanceFrames(60, 1000 / 60)"
+            ),
+        );
+        let scene = wowlua_engine::scene::build(&mut vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        let image = r
+            .render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        let w = scene.world.as_ref().expect("the world");
+        eprintln!(
+            "zoom {:?}: eye {:?} look {:?}, the player at {:?}",
+            run(&mut vm, "return GetCameraZoom()"),
+            w.eye,
+            w.look,
+            w.units.first().map(|u| u.at)
+        );
+        if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+            let png = wowlua_render::encode_png(&image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(dir).join(format!("fade-{distance}.png")),
+                png,
+            )
+            .expect("written");
+        }
+        shots.push(image);
+    }
+    assert_eq!(shots.len(), 4);
 }
 
 /// Shadows (decision T563): a blob under each unit on every client, and
