@@ -7022,7 +7022,7 @@ declare interface DamageMeterCombatSourceSecret
     sourceCreatureID?: number | Secret<number>
     name: string | Secret<string>
     classFilename: string
-    specIconID: number
+    specIconID: number | Secret<number>
     totalAmount: number | Secret<number>
     amountPerSecond: number | Secret<number>
     isLocalPlayer: boolean

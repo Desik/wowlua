@@ -7,7 +7,7 @@
 #   spell  <race file> <factions> <classes> <spell ID> <name>
 # a spell of the race's racial skill lines (SkillLineAbility's race and
 # class masks); `-` every faction of the race / every class of the flavor.
-[camelot]	wowf 1.60.1.70658
+[camelot]	wowf 1.60.1.70707
 race	Human	Alliance	1	Human	WARRIOR,PALADIN,PRIEST,ROGUE,MAGE,WARLOCK,HUNTER
 race	Orc	Horde	2	Orc	WARRIOR,SHAMAN,ROGUE,MAGE,WARLOCK,HUNTER
 race	Dwarf	Alliance	3	Dwarf	WARRIOR,PALADIN,PRIEST,SHAMAN,ROGUE,HUNTER

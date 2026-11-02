@@ -522,6 +522,20 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
         let k = vm.heap.intern(name.as_bytes());
         vm.heap.table_mut(constants).set_str(k, Value::Table(t));
     }
+    // Tables the battery recorded that a newer build's documentation no
+    // longer names, while that build's own code still reads them.
+    for (f, name, values) in RECORDED_CONSTANTS {
+        let k = vm.heap.intern(name.as_bytes());
+        if *f != flavor || !vm.heap.table(constants).get_str(k).is_nil() {
+            continue;
+        }
+        let t = vm.new_table();
+        for (field, value) in *values {
+            let fk = vm.heap.intern(field.as_bytes());
+            vm.heap.table_mut(t).set_str(fk, Value::Num(*value));
+        }
+        vm.heap.table_mut(constants).set_str(k, Value::Table(t));
+    }
     // The number globals the client defines (`LE_*`).
     for line in client_data(flavor).map_or("", |d| d.globals).lines() {
         if let Some((name, n)) = line.split_once('\t')
@@ -842,6 +856,26 @@ pub fn install(vm: &mut Vm, flavor: &str) -> Result<(), String> {
     vm.on_dropped_error = Some(ui::dropped_error);
     Ok(())
 }
+
+/// A flavor's recorded `Constants` table: flavor, table, its fields.
+type RecordedConstants = (&'static str, &'static str, &'static [(&'static str, f64)]);
+
+/// `Constants` tables as `/stdtest engine` recorded them (Forever 70425)
+/// where the installed build's documentation names them otherwise (70707:
+/// `LevelConstsExposed_Camelot`, its resurrection sickness from level 11),
+/// while that build's own UI code still reads the recorded name
+/// (`MainMenuBarMicroButtons.lua`, `MainMenuBarMicroButtonsOverrides.lua`):
+/// flavor, table, fields. Kept until the battery is recorded again
+/// (decision T576; tests/ingame/PROBES.md, "The Camelot update").
+const RECORDED_CONSTANTS: &[RecordedConstants] = &[(
+    "camelot",
+    "LevelConstsExposed",
+    &[
+        ("MIN_ACHIEVEMENT_LEVEL", 10.0),
+        ("MIN_RES_SICKNESS_LEVEL", 10.0),
+        ("MIN_TALENT_LEVEL", 10.0),
+    ],
+)];
 
 /// `Enum` and `Constants` as the client has them where its documentation
 /// differs (`data/<flavor>-enums.txt`, from `/stdtest engine`): a line

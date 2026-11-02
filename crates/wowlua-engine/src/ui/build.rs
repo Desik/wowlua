@@ -1391,23 +1391,42 @@ pub fn module_key(path: &str) -> String {
 }
 
 /// `import(".Name")`, `import(".Dir.Name")`: the result of the file
-/// `Name.lua` (in `Dir`) next to the calling file, which loaded before.
-/// Unverified: absolute names, and the error for a module not there.
+/// `Name.lua` (in `Dir`) next to the calling file, which loaded before;
+/// `import("AddOn.Dir.Name")`: the file `Dir/Name.lua` of the addon
+/// `AddOn` (Forever 70707's `FrameControlsManager.lua` imports
+/// `Blizzard_GamepadSmartNavigation.SecureHelper`, an addon it depends on;
+/// decision T576). Unverified: the error for a module not there.
 pub fn import(vm: &mut Vm, c: wowlua_vm::NativeCall) -> wowlua_vm::stdlib::Ret {
     let name = vm.check_str(&c, 1)?;
     let name = String::from_utf8_lossy(vm.str_bytes(name)).into_owned();
-    let source = vm
-        .caller_source(1)
-        .map(|s| String::from_utf8_lossy(&s).into_owned())
-        .unwrap_or_default();
-    let file = source
-        .strip_prefix('@')
-        .unwrap_or(&source)
-        .replace('\\', "/");
-    let dir = file.rsplit_once('/').map_or("", |(d, _)| d);
-    let rel = name.strip_prefix('.').unwrap_or(&name).replace('.', "/");
-    let key = module_key(&format!("{dir}/{rel}"));
-    match engine(vm).world.ui.modules.get(&key).copied() {
+    let found = match name.strip_prefix('.') {
+        Some(rel) => {
+            let source = vm
+                .caller_source(1)
+                .map(|s| String::from_utf8_lossy(&s).into_owned())
+                .unwrap_or_default();
+            let file = source
+                .strip_prefix('@')
+                .unwrap_or(&source)
+                .replace('\\', "/");
+            let dir = file.rsplit_once('/').map_or("", |(d, _)| d);
+            let key = module_key(&format!("{dir}/{}", rel.replace('.', "/")));
+            engine(vm).world.ui.modules.get(&key).copied()
+        }
+        None => {
+            // The addon's folder, wherever the files' names start.
+            let rel = format!("addons/{}", module_key(&name.replace('.', "/")));
+            let modules = &engine(vm).world.ui.modules;
+            modules
+                .iter()
+                .find(|(key, _)| {
+                    key.strip_suffix(rel.as_str())
+                        .is_some_and(|head| head.is_empty() || head.ends_with('/'))
+                })
+                .map(|(_, &v)| v)
+        }
+    };
+    match found {
         Some(v) => Ok(vec![v]),
         None => Err(vm.error(&format!("import: no module '{name}'"))),
     }

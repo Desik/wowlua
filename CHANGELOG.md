@@ -21,10 +21,12 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 
 ### Changed
 
-- The camelot, vanilla, tbc and mists API declarations come from the games' current clients (WoW Forever 1.60.1.70658, Classic Era 1.15.9.70576, Anniversary 2.5.6.70577, Mists Classic 5.5.4.70631), with their global strings. A Classic flavor now declares only the UI globals its own game loads, not those of the other Classic games.
+- The camelot, vanilla, tbc and mists API declarations come from the games' current clients (WoW Forever 1.60.1.70707, Classic Era 1.15.9.70576, Anniversary 2.5.6.70577, Mists Classic 5.5.4.70631), with their global strings. A Classic flavor now declares only the UI globals its own game loads, not those of the other Classic games.
 
 ### Fixed
 
+- With WoW Forever's latest update (1.60.1.70707) installed, `test.blizzard-ui` loads Blizzard's UI again, and spell descriptions read from your installation show their durations again.
+- Blizzard's global strings read from your installation have their line breaks, trailing spaces and backslashes: chat lines read "says: ", not `says:\32`.
 - `wowlua publish` with a missing or wrong token now shows the registry's reason on Windows, not a connection error.
 - Aura containers (`CustomAuraContainerTemplate`, `aura.container`) on WoW Forever show only the auras the unit has: every one of their buttons showed, empty, so a player without debuffs looked as if they had Magic, Curse, Poison and Disease debuffs.
 

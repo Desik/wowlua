@@ -1057,7 +1057,7 @@ build has them all (`wowlua install` in `tests/ingame`).
 On WoW Forever: from its launch on 5 November 2026 (no login before).
 
 The declarations and Blizzard's UI code now come from the installed client
-(1.60.1.70658 or newer), but the engine's recordings are of 70425: its
+(1.60.1.70707 or newer), but the engine's recordings are of 70425: its
 `Enum` corrections, CVars, number globals, colors, spells, talents and
 trainers. These steps record them again on the updated client.
 
@@ -1069,12 +1069,26 @@ trainers. These steps record them again on the updated client.
 4. **Take it in**: `cargo xtask ingest`, then `cargo xtask types fetch` and
    `cargo xtask types gen`.
 
-   wowlua: `engine_probe`'s `NEWER_BUILD` lists what 70658 changed. Recorded:
-   (to do)
+   wowlua: `engine_probe`'s `NEWER_BUILD` lists what 70658 and 70707
+   changed (70707: `Enum.VasTransactionPurchaseResult.ProxyNoMixedAlliance`,
+   and the documentation's `Constants.LevelConstsExposed_Camelot`, its
+   `MIN_RES_SICKNESS_LEVEL` 11; the engine keeps the recorded
+   `LevelConstsExposed`, 10, 10, 10, which 70707's micro menu reads,
+   decision T576). The trees' and transmog sources' tests (`wowlua-render`,
+   `CHANGED`) list what 70707's tables changed: the mage tree, two
+   sources' appearances. Recorded: (to do)
 5. **One color** (decision T554): `/run for _,c in ipairs(C_UIColor.GetColors()) do if c.baseTag=="COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR" then print(c.color:GetRGBA()) end end`
 
    wowlua: `0.16862745583057 0.57647061347961 0.019607843831182 0`, the
    installed table's alpha (0); 70425 answered 1. Recorded: (to do)
+6. **A cleared normal texture** (decision T576): `/console scriptErrors 1`,
+   then `/run local b=CreateFrame("Button") b:SetNormalTexture("Interface\\Buttons\\WHITE8X8") local t=b:GetNormalTexture() b:ClearNormalTexture() print(b:GetNormalTexture()==t, t:GetTexture(), t:IsShown())`
+
+   wowlua: `true nil false` (inferred: 70707's item buttons mask their
+   normal texture after their `OnLoad`, in which the professions' recraft
+   slot clears it). Then open a profession's window and note whether
+   `ItemButtonTemplate.lua:17: attempt to index a nil value` shows.
+   Recorded: (to do)
 
 ## The Classic clients' data (decision T554)
 

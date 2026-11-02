@@ -28,7 +28,7 @@ their clients answer differently is unverified.
   them (98.1%).
 - **Scenario replays:** 22,097 of 22,154 recorded lines replayed as the client
   logged them (99.7%); 25 of 29 scenarios line for line.
-- **Unverified rules:** 1,182 comments in the engine mark a rule unverified.
+- **Unverified rules:** 1,184 comments in the engine mark a rule unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
@@ -844,7 +844,7 @@ read-back counts for its setter), from the test's misses
 
 ## Unverified rules
 
-The engine's code marks 1,182 rules unverified: each rests on Blizzard's
+The engine's code marks 1,184 rules unverified: each rests on Blizzard's
 documentation or UI code, warcraft.wiki.gg, elune or the function's name, not on
 a probe of the client. An in-game probe confirms or corrects each
 ([probes](../tests/ingame/PROBES.md)). Each line is the marking comment's first
@@ -2263,12 +2263,13 @@ page changes only when a rule is added, removed or reworded.
 - [units.rs](../crates/wowlua-engine/src/units.rs): `UnitIsHumanPlayer(unit)`: a player's character (unverified: as `UnitIsPlayer`).
 - [units.rs](../crates/wowlua-engine/src/units.rs): Not casting or channeling: no values.
 
-### widgetops (2)
+### widgetops (3)
 
 - [widgetops.rs](../crates/wowlua-engine/src/widgetops.rs): Unverified, none recorded: which frames `Raise` counts (the shown ones of the strata here) and the level cap (10000),...
+- [widgetops.rs](../crates/wowlua-engine/src/widgetops.rs): A button's `Clear…Texture()`: the state's texture emptied (no file or atlas, hidden) but still the button's, `Get…Tex...
 - [widgetops.rs](../crates/wowlua-engine/src/widgetops.rs): Methods of what the engine draws or keeps nothing of: model cameras, lights and animation kits, the browser and the s...
 
-### widgets (50)
+### widgets (51)
 
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): As `/stdtest engine` recorded on WoW Forever 1.60.1 (fixture `tests/client/forever-camelot-engine.lua`, checked by `w...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): Edit boxes Lua set the text of this frame: `OnTextChanged(false)` runs once each after the frame's `OnUpdate`, not at...
@@ -2309,6 +2310,7 @@ page changes only when a rule is added, removed or reworded.
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `editBox:SetNumber(n)`: its text the number's, as `SetText`'s (unverified: not recorded; the auction house's quantity...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `editBox:GetNumber()`: its text as a number, 0 when it is none (unverified: not recorded).
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): Attribute names are case-insensitive (unverified): kept lower-case.
+- [widgets.rs](../crates/wowlua-engine/src/widgets.rs): Called as the client calls a script, also while `CreateFrame` runs a new frame's `OnLoad` (decision T243's taint goin...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `GetAttribute(name)`, or `GetAttribute(prefix, name, suffix)`: the first set of `prefix..name..suffix`, `*..name..suf...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `GetFrameLevel()`: what `SetFrameLevel` set, else one above the parent (unverified).
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `SetUsingParentLevel(using)`: kept; using its parent's, a frame drops the level set before (SuuUI probe trees: `Inset...

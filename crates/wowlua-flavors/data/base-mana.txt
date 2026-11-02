@@ -3,7 +3,7 @@
 # installation>`, decision T512): a section per flavor, `[flavor]` and the
 # client build it was read from, a column per class, a row per level; 0 a
 # class without base mana.
-[camelot]	wowf 1.60.1.70658
+[camelot]	wowf 1.60.1.70707
 level	WARRIOR	PALADIN	PRIEST	SHAMAN	DRUID	ROGUE	MAGE	WARLOCK	HUNTER
 1	0	60	110	55	50	0	100	90	65
 2	0	64	119	61	57	0	110	98	70

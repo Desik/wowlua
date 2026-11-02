@@ -17,8 +17,8 @@
 //! - `AdjustPointsOffset(x, y)`: every anchor moved by (x, y);
 //!   `ClearPointsOffset()`: every anchor's offset 0.
 //! - The clears: a button's
-//!   `ClearNormalTexture()` and the other states' (`GetNormalTexture` nil,
-//!   the texture hidden), `FontString:ClearText()`, `ClearParentKey()`,
+//!   `ClearNormalTexture()` and the other states' (the texture emptied and
+//!   hidden, still the button's: decision T576), `FontString:ClearText()`, `ClearParentKey()`,
 //!   `ResetTexCoord()`, `StopAnimating()` (every animation group of the
 //!   region stopped).
 //!
@@ -385,8 +385,11 @@ fn same(a: Value, b: Value) -> bool {
     }
 }
 
-/// A button's `Clear…Texture()`: the state's texture gone (hidden, no
-/// longer the button's).
+/// A button's `Clear…Texture()`: the state's texture emptied (no file or
+/// atlas, hidden) but still the button's, `Get…Texture` answering it:
+/// Forever 70707's item buttons mask their normal texture after their
+/// `OnLoad`, in which the professions' recraft slot clears it (decision
+/// T576; unverified, tests/ingame/PROBES.md "The Camelot update").
 fn clear_state_texture(vm: &mut Vm, id: WidgetId, state: &str) -> Ret {
     crate::widgets::mark(crate::engine_mut(vm), id);
     let stem = format!("{state}Texture");
@@ -396,8 +399,10 @@ fn clear_state_texture(vm: &mut Vm, id: WidgetId, state: &str) -> Ret {
         .and_then(|v| widgets::widget_of(vm, v));
     if let Some(r) = region {
         engine_mut(vm).world.widgets[r.0].shown = false;
+        widgets::unstore(vm, r, "Texture");
+        widgets::unstore(vm, r, "Atlas");
     }
-    unset(vm, id, &stem);
+    unset(vm, id, &format!("{state}Atlas"));
     Ok(vec![])
 }
 

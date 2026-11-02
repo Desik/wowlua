@@ -149,7 +149,12 @@ The client's security model, in the VM:
     are the addon's code, but making them does not taint the code applying
     the template (decision T493): a secure group header runs its
     `initialConfigFunction` for buttons of an addon's template with an
-    inline `OnLoad`.
+    inline `OnLoad`. The `OnAttributeChanged` a `SetAttribute` runs starts
+    as the client calls a script, untainted for a secure handler, also
+    within such an `OnLoad` of an addon's `CreateFrame` (Forever 70707's
+    smart navigation sets its secure values from tainted template code
+    through its own attribute handler, which asserts it runs secure;
+    unverified, decision T576).
     `C_RestrictedActions.CheckAllowProtectedFunctions(object)` follows the
     same rule for its object: false for tainted code in combat lockdown on a
     protected frame (UIParent among them), true on an unprotected one, so an
@@ -371,7 +376,11 @@ The WoW API the VM's code calls, per flavor.
   than an installed client, so it only adds), and the tables the flavor's
   own `EnvironmentCleanup.lua` removes are secure, as camelot's recorded
   ones (`data/<flavor>-enums.txt`, `data/<flavor>-globals.txt`; decision
-  T554). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
+  T554). A `Constants` table the recording has that a newer build's
+  documentation names otherwise, while that build's code still reads the
+  recorded name, keeps its recorded values until the battery is recorded
+  again (camelot 70707's `LevelConstsExposed`, documented as
+  `LevelConstsExposed_Camelot`; decision T576). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
   table, by name, each byte times 1/255 in floats as the client's
   (`data/<flavor>-colors.txt`, which `cargo xtask types gen` writes).
 - **Natives.** The API functions are natives of the VM, as the client's are C
@@ -489,7 +498,10 @@ The WoW API the VM's code calls, per flavor.
   zeroes them; the clears (a button's `ClearNormalTexture`
   and the other states', `FontString:ClearText`, `ClearParentKey`,
   `ResetTexCoord`, `StopAnimating`, `ClearAttributes`, `ClearScripts`,
-  `RemoveAnimations`) undo their setters; `LockHighlight` is
+  `RemoveAnimations`) undo their setters, but a button's cleared state
+  texture stays its own, emptied and hidden (`GetNormalTexture` answers
+  it: Forever 70707's item buttons mask it after their `OnLoad`, in which
+  the professions' recraft slot clears it; unverified, decision T576); `LockHighlight` is
   `SetHighlightLocked(true)`. The methods of what the engine draws or keeps
   nothing of (model cameras and lights, the browser, the shop's checkout,
   housing's pins, the minimap's blips, movies, vector graphics) change
@@ -556,7 +568,9 @@ commit the declarations name), each addon's TOC (the client's suffixes
 first), the files it lists with `[Game]` and `[Family]` as the flavor's, its
 key bindings (`Bindings_<suffix>.xml`, `Bindings.xml`), the files its XML
 includes, and the addons it depends on or loads (`LoadAddOn("…")`). The global
-strings are the client's `GlobalStrings` table's that are set in the game.
+strings are the client's `GlobalStrings` table's that are set in the game,
+the escapes the table writes them with (`\n`, `\32`, `\\`) read as in Lua
+(decision T576).
 `WOWLUA_UI_FROM=upstream` leaves the installation out.
 
 Elsewhere (CI), the code comes from wow-ui-source at the flavor's client
@@ -588,7 +602,10 @@ takes the flavor's `Interface` folder and its global strings:
 - **Lua files** run as secure code with the addon's name and table, also
   when an addon's code loads a load-on-demand one (`C_AddOns.LoadAddOn`)
   while the addon loads: Blizzard's files and scripts compile as Blizzard's
-  code whoever runs when they load, and keep their own file names.
+  code whoever runs when they load, and keep their own file names. A file's
+  result is its module: `import(".Dir.Name")` gives the result of
+  `Dir/Name.lua` next to the importing file, `import("AddOn.Dir.Name")` that
+  of `Dir/Name.lua` in the addon `AddOn`'s folder (decision T576).
 - **XML** builds widgets as the client does: virtual elements are templates
   (for `inherits` and `CreateFrame`), intrinsic ones frame types; an
   element's templates apply first, then its attributes, mixins, `parentKey`

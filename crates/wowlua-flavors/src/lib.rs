@@ -525,7 +525,7 @@ impl Flavor {
     }
 
     /// The client build the races and racial spells were read from
-    /// (`wowf 1.60.1.70658`), if any.
+    /// (`wowf 1.60.1.70707`), if any.
     pub fn racials_build(&self) -> Option<&str> {
         racials_of(&self.id).map(|r| r.build.as_str())
     }

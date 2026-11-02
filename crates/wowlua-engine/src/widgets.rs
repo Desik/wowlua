@@ -3727,7 +3727,14 @@ fn set_attribute(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
     let attributes = engine(vm).world.widgets[id.0].attributes;
     let v = c.arg(3);
     let _ = vm.heap.table_mut(attributes).set(name, v);
+    // Called as the client calls a script, also while `CreateFrame` runs a
+    // new frame's `OnLoad` (decision T243's taint going on is the OnLoad's,
+    // not this handler's): Forever 70707's smart navigation sets its secure
+    // values from tainted template code through its own attribute handler,
+    // which asserts it runs secure (decision T576; unverified).
+    let creating = std::mem::replace(&mut engine_mut(vm).world.ui.creating, false);
     run_script(vm, id, "OnAttributeChanged", &[name, v]);
+    engine_mut(vm).world.ui.creating = creating;
     Ok(vec![])
 }
 
