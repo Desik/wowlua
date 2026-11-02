@@ -173,10 +173,18 @@ t:ResetTexCoord()
 local m = CreateFrame('PlayerModel', nil, UIParent)
 m:SetModel(130737)
 m:ClearModel()
-return tostring(b:GetNormalTexture()), tostring(tex:IsShown()), tostring(fs:GetText()),
+return tostring(b:GetNormalTexture() == tex and tex:GetTexture()), tostring(tex:IsShown()), tostring(fs:GetText()),
     tostring(holder.Kid), tostring(kid:GetParentKey()), t:GetTexCoord(), m:GetModelFileID()",
     );
     assert_eq!(r, ["nil", "false", "nil", "nil", "nil", "0", "0"]);
+    // (a fresh button's cleared texture: none, as the client answered)
+    let r = run(
+        &mut vm,
+        "local b = CreateFrame('Button', nil, UIParent)
+b:ClearNormalTexture()
+return tostring(b:GetNormalTexture())",
+    );
+    assert_eq!(r, ["nil"]);
 }
 
 #[test]

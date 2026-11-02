@@ -486,7 +486,10 @@ The WoW API the VM's code calls, per flavor.
   zeroes them; the clears (a button's `ClearNormalTexture`
   and the other states', `FontString:ClearText`, `ClearParentKey`,
   `ResetTexCoord`, `StopAnimating`, `ClearAttributes`, `ClearScripts`,
-  `RemoveAnimations`) undo their setters; `LockHighlight` is
+  `RemoveAnimations`) undo their setters, but a button's cleared state
+  texture stays its own, emptied and hidden (`GetNormalTexture` answers
+  it: Forever 70707's item buttons mask it after their `OnLoad`, in which
+  the professions' recraft slot clears it; unverified, decision T566); `LockHighlight` is
   `SetHighlightLocked(true)`. The methods of what the engine draws or keeps
   nothing of (model cameras and lights, the browser, the shop's checkout,
   housing's pins, the minimap's blips, movies, vector graphics) change

@@ -1082,14 +1082,13 @@ trainers. These steps record them again on the updated client.
    wowlua: `0.16862745583057 0.57647061347961 0.019607843831182 0`, the
    installed table's alpha (0); 70425 answered 1. Recorded: (to do)
 6. **A cleared normal texture** (decision T566): `/console scriptErrors 1`,
-   then `/run local b=CreateFrame("Button") b:SetNormalTexture("Interface\\Buttons\\WHITE8X8") b:ClearNormalTexture() print(b:GetNormalTexture())`
+   then `/run local b=CreateFrame("Button") b:SetNormalTexture("Interface\\Buttons\\WHITE8X8") local t=b:GetNormalTexture() b:ClearNormalTexture() print(b:GetNormalTexture()==t, t:GetTexture(), t:IsShown())`
 
-   wowlua: `nil`. 70707's item buttons mask their normal texture after
-   their `OnLoad`, and the professions' recraft slot clears it in its own:
-   with `nil` here, opening a profession's window (its crafting page)
-   shows `ItemButtonTemplate.lua:17: attempt to index a nil value`, which
-   `engine_probe`'s `NEWER_BUILD_ERRORS` and the panels test let pass.
-   Open one and note whether the error shows. Recorded: (to do)
+   wowlua: `true nil false` (inferred: 70707's item buttons mask their
+   normal texture after their `OnLoad`, in which the professions' recraft
+   slot clears it). Then open a profession's window and note whether
+   `ItemButtonTemplate.lua:17: attempt to index a nil value` shows.
+   Recorded: (to do)
 
 ## The Classic clients' data (decision T554)
 

@@ -3466,13 +3466,6 @@ local function panels()
         mock.pressBinding(name)
         mock.nextFrame(3)
     end
-    -- Forever 70707's item buttons mask their normal texture after their
-    -- OnLoad, which the professions' recraft slot has cleared: an error
-    -- until a probe tells what GetNormalTexture answers then (PROBES.md,
-    -- "The Camelot update").
-    for _, e in ipairs(mock.errors()) do
-        expect(string.find(e, "ItemButtonTemplate.lua:17: attempt to index a nil value", 1, true) ~= nil).toBe(true)
-    end
     expect(#mock.refusals()).toBe(0)
 end
 "#
