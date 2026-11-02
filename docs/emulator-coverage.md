@@ -2475,6 +2475,8 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - The world's motion (decision T558)
 - The Graphics settings (decision T561)
 - Spells in the world (decision T582)
+- WoW Forever's water (decision T583)
+- The world's shading (decisions T584, T585)
 
 ## In-game regressions
 
