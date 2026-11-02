@@ -476,7 +476,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     })
 }
 
-const LAYERS: [&str; 5] = ["BACKGROUND", "BORDER", "ARTWORK", "OVERLAY", "HIGHLIGHT"];
+pub(crate) const LAYERS: [&str; 5] = ["BACKGROUND", "BORDER", "ARTWORK", "OVERLAY", "HIGHLIGHT"];
 
 /// Screen pixels per UIParent unit, and UIParent's height in its units.
 pub fn pixel_scale(vm: &Vm) -> (f64, f64) {
@@ -717,6 +717,7 @@ fn image_of(vm: &Vm, id: WidgetId) -> Option<ImageOf> {
             Value::Num(n) if n < 0.0 => {
                 return Some((Image::File(loose_path(vm, n)?), None, (false, false), None));
             }
+            Value::Num(0.0) => return None,
             Value::Num(n) => return Some((Image::FileId(n as u32), None, (false, false), None)),
             _ => {}
         }
@@ -2411,6 +2412,13 @@ fn build_scene(vm: &mut Vm, keep: bool) -> Scene {
                 continue;
             }
             let (layer, sub) = layer_of(vm, c);
+            let props = engine(vm).world.widgets[group[owner].0].props;
+            if let Some(Value::Num(disabled)) =
+                widgets::stored_arg(vm, props, "DisabledDrawLayers", 0)
+                && (disabled as u32) & (1 << layer) != 0
+            {
+                continue;
+            }
             // The highlight layer while the mouse is over the frame.
             if layer == 4 && hover != Some(group[owner]) {
                 continue;

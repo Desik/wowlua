@@ -2048,6 +2048,42 @@ fn get_num_children(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
     Ok(vec![Value::Num(n as f64)])
 }
 
+fn get_num_regions(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
+    let n = get_regions(vm, id, c)?.len();
+    Ok(vec![Value::Num(n as f64)])
+}
+
+/// Draw-layer switches affect the frame's regions, without changing their
+/// shown state or the layers of its child frames.
+fn set_draw_layer_enabled(vm: &mut Vm, id: WidgetId, c: NativeCall, enabled: bool) -> Ret {
+    let name = vm.check_str(&c, 2)?;
+    let layer = crate::scene::LAYERS
+        .iter()
+        .position(|layer| layer.as_bytes() == vm.str_bytes(name))
+        .ok_or_else(|| c_error(vm, "Invalid draw layer", false))?;
+    let props = engine(vm).world.widgets[id.0].props;
+    let disabled = match stored_arg(vm, props, "DisabledDrawLayers", 0) {
+        Some(Value::Num(n)) => n as u32,
+        _ => 0,
+    };
+    let bit = 1 << layer;
+    let disabled = if enabled {
+        disabled & !bit
+    } else {
+        disabled | bit
+    };
+    store(vm, id, "DisabledDrawLayers", &[Value::Num(disabled as f64)]);
+    Ok(vec![])
+}
+
+fn disable_draw_layer(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
+    set_draw_layer_enabled(vm, id, c, false)
+}
+
+fn enable_draw_layer(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
+    set_draw_layer_enabled(vm, id, c, true)
+}
+
 /// `CreateFontString`, `CreateTexture`, `CreateMaskTexture`, `CreateLine`:
 /// a region of that class, named and parented.
 fn create_region(vm: &mut Vm, id: WidgetId, c: NativeCall, class: &str) -> Ret {
@@ -5141,6 +5177,9 @@ pub fn behaviours() -> Vec<(&'static str, MethodFn)> {
         ("GetChildren", get_children),
         ("GetRegions", get_regions),
         ("GetNumChildren", get_num_children),
+        ("GetNumRegions", get_num_regions),
+        ("DisableDrawLayer", disable_draw_layer),
+        ("EnableDrawLayer", enable_draw_layer),
         ("CreateFontString", font_string),
         ("AddMessage", add_message),
         ("SetColorRGB", set_color_rgb),

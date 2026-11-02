@@ -33,10 +33,10 @@ their clients answer differently is unverified.
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
 | camelot | 5,113 | 5,110 (99.9%) | 353 | 1,477 | 1,477 (100.0%) | all |
-| standard | 4,871 | 4,523 (92.9%) | 0 | 1,438 | 1,430 (99.4%) | none |
-| vanilla | 3,221 | 2,909 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| tbc | 3,221 | 2,909 (90.3%) | 0 | 1,360 | 1,348 (99.1%) | none |
-| mists | 3,222 | 2,906 (90.2%) | 0 | 1,360 | 1,348 (99.1%) | none |
+| standard | 4,871 | 4,523 (92.9%) | 0 | 1,438 | 1,431 (99.5%) | none |
+| vanilla | 3,221 | 2,909 (90.3%) | 0 | 1,360 | 1,349 (99.2%) | none |
+| tbc | 3,221 | 2,909 (90.3%) | 0 | 1,360 | 1,349 (99.2%) | none |
+| mists | 3,222 | 2,906 (90.2%) | 0 | 1,360 | 1,349 (99.2%) | none |
 
 ## API behaviour
 
@@ -369,7 +369,7 @@ The modules that answer, by how many functions and methods:
 | Module | Kind | Functions and methods |
 |--------|------|----------------------:|
 | `extras` | fill-in | 1,488 |
-| `widgets` | model | 635 |
+| `widgets` | model | 637 |
 | `globalsinfo` | fill-in | 524 |
 | `content` | fill-in | 520 |
 | `leftovers2` | fill-in | 388 |
@@ -386,8 +386,8 @@ The modules that answer, by how many functions and methods:
 | `blanks` | fill-in | 153 |
 | `stats` | model | 136 |
 | `methods2` | fill-in | 131 |
-| `widgetops` | fill-in | 112 |
 | `objects2` | model | 111 |
+| `widgetops` | fill-in | 111 |
 | `units` | model | 94 |
 | `guild` | model | 80 |
 | `extras` | model | 78 |
@@ -421,8 +421,8 @@ The modules that answer, by how many functions and methods:
 | `trainer` | model | 22 |
 | `models` | model | 20 |
 | `taxi` | model | 20 |
-| `widgetdata` | recorded | 20 |
 | `party` | model | 19 |
+| `widgetdata` | recorded | 19 |
 | `input` | model | 18 |
 | `pets` | model | 18 |
 | `replies` | model | 18 |
@@ -494,7 +494,7 @@ widget's recorded value where `/stdtest engine` recorded one):
 | `FogOfWarFrame` | 12 | 6 | 0 | 6 | 0 |
 | `Font` | 24 | 14 | 0 | 10 | 0 |
 | `FontString` | 57 | 33 | 0 | 24 | 0 |
-| `Frame` | 126 | 85 | 13 | 28 | 0 |
+| `Frame` | 126 | 87 | 12 | 27 | 0 |
 | `FrameScriptObject` | 21 | 8 | 0 | 13 | 0 |
 | `HousingCatalogSearcher` | 46 | 46 | 0 | 0 | 0 |
 | `HousingFixturePointFrame` | 5 | 3 | 0 | 2 | 0 |
@@ -541,7 +541,7 @@ widget's recorded value where `/stdtest engine` recorded one):
 | `UnitPositionFrame` | 12 | 4 | 0 | 8 | 0 |
 | `VectorGraphics` | 4 | 1 | 0 | 3 | 0 |
 | `VertexColor` | 4 | 2 | 0 | 2 | 0 |
-| **All** | 1,477 | 999 | 20 | 458 | 0 |
+| **All** | 1,477 | 1,001 | 19 | 457 | 0 |
 
 ## Verification against the client
 

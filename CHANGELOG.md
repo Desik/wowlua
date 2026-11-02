@@ -6,6 +6,7 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 
 ### New
 
+- World profiles accept `renown`, a map of faction IDs to numeric renown levels, applied before the addon loads.
 - **More for AI agents in `wowlua mcp`**: an agent can now check, format, build and test your package (`check`, `fmt`, `build`, and `test` with the failures' messages and lines, and coverage on request), see which frame is at a point (`pick`) and everything about one frame (`inspect`: anchors, scripts, events, the line that made it), list the world's units (`units`), log the game events (`events`), change the screen size (`set_screen`), save the running world as a world profile (`save_world`) and list the breakpoints with their hits (`breakpoints`). A stop at an error, a blocked action or taint now tells its details.
 - An agent can read wowlua's docs and the standard library's reference through `wowlua mcp` (`wowlua_docs`, `wowlua_reference`): the docs and modules of exactly the wowlua it runs, with no web access needed.
 - `test.blizzard-ui` reads Blizzard's UI code and global strings from your WoW installation when the flavor's game is installed, so tests run against exactly your client's UI. Without the game (in CI) it still downloads them; `WOWLUA_UI_FROM=upstream` downloads them anyway.
@@ -30,6 +31,9 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 - Blizzard's global strings read from your installation have their line breaks, trailing spaces and backslashes: chat lines read "says: ", not `says:\32`.
 - `wowlua publish` with a missing or wrong token now shows the registry's reason on Windows, not a connection error.
 - Aura containers (`CustomAuraContainerTemplate`, `aura.container`) on WoW Forever show only the auras the unit has: every one of their buttons showed, empty, so a player without debuffs looked as if they had Magic, Curse, Poison and Disease debuffs.
+- `GetNumRegions()` counts a frame's current regions, including hidden regions, rather than returning a fresh frame's recorded count.
+- `DisableDrawLayer` and `EnableDrawLayer` hide and restore a frame's draw layers without changing its regions' shown state or its child frames' layers.
+- Clearing texture artwork with file ID `0` no longer draws missing-texture placeholders.
 
 ## 0.13.8 (2026-11-01)
 
