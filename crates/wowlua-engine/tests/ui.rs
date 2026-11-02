@@ -492,6 +492,45 @@ fn modules_are_imported_by_relative_and_addon_names() {
     );
 }
 
+/// A secure `OnAttributeChanged` that tainted code's `SetAttribute` runs
+/// starts untainted, also from a Blizzard template's `OnLoad` in an
+/// addon's `CreateFrame` (whose own taint goes on; decision T566: 70707's
+/// smart navigation sets its secure values so).
+#[test]
+fn attribute_handlers_start_untainted_while_a_frame_is_made() {
+    let interface = tree(
+        "attribute-handler",
+        &[
+            (
+                "AddOns/Blizzard_Helper/Blizzard_Helper.toc",
+                "Helper.lua\nTemplate.xml\n",
+            ),
+            (
+                "AddOns/Blizzard_Helper/Helper.lua",
+                "HelperLog = {}\nlocal h = CreateFrame('Frame')\n\
+                 h:SetScript('OnAttributeChanged', function(self, name) HelperLog[#HelperLog + 1] = name .. '=' .. tostring(issecure()) end)\n\
+                 HelperFrame = h\n",
+            ),
+            (
+                "AddOns/Blizzard_Helper/Template.xml",
+                "<Ui><Frame name=\"HelperTemplate\" virtual=\"true\"><Scripts><OnLoad>\
+                 HelperLog[#HelperLog + 1] = 'onload=' .. tostring(issecure()) HelperFrame:SetAttribute('fromload', 1)\
+                 </OnLoad></Scripts></Frame></Ui>",
+            ),
+        ],
+    );
+    let mut vm = vm("camelot");
+    let report = wowlua_engine::ui::load(&mut vm, &interface, None);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let r = run(
+        &mut vm,
+        "CreateFrame('Frame', nil, UIParent, 'HelperTemplate')
+HelperFrame:SetAttribute('fromaddon', 1)
+return table.concat(HelperLog, ' ')",
+    );
+    assert_eq!(r, ["onload=false fromload=true fromaddon=true"]);
+}
+
 #[test]
 fn blizzard_addons_loaded_while_an_addon_loads() {
     let interface = tree(

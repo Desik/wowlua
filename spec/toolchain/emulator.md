@@ -149,7 +149,12 @@ The client's security model, in the VM:
     are the addon's code, but making them does not taint the code applying
     the template (decision T493): a secure group header runs its
     `initialConfigFunction` for buttons of an addon's template with an
-    inline `OnLoad`.
+    inline `OnLoad`. The `OnAttributeChanged` a `SetAttribute` runs starts
+    as the client calls a script, untainted for a secure handler, also
+    within such an `OnLoad` of an addon's `CreateFrame` (Forever 70707's
+    smart navigation sets its secure values from tainted template code
+    through its own attribute handler, which asserts it runs secure;
+    unverified, decision T566).
     `C_RestrictedActions.CheckAllowProtectedFunctions(object)` follows the
     same rule for its object: false for tainted code in combat lockdown on a
     protected frame (UIParent among them), true on an unprotected one, so an
@@ -556,7 +561,9 @@ commit the declarations name), each addon's TOC (the client's suffixes
 first), the files it lists with `[Game]` and `[Family]` as the flavor's, its
 key bindings (`Bindings_<suffix>.xml`, `Bindings.xml`), the files its XML
 includes, and the addons it depends on or loads (`LoadAddOn("…")`). The global
-strings are the client's `GlobalStrings` table's that are set in the game.
+strings are the client's `GlobalStrings` table's that are set in the game,
+the escapes the table writes them with (`\n`, `\32`, `\\`) read as in Lua
+(decision T566).
 `WOWLUA_UI_FROM=upstream` leaves the installation out.
 
 Elsewhere (CI), the code comes from wow-ui-source at the flavor's client

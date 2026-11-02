@@ -1086,6 +1086,9 @@ fn reads_the_global_strings() {
         );
         let okay = strings.iter().find(|(n, _, _)| n == "OKAY").expect("OKAY");
         assert_eq!(okay.1, "Okay", "{product}");
+        // (written `%s says:\32` in the table)
+        let say = strings.iter().find(|(n, _, _)| n == "CHAT_SAY_GET");
+        assert_eq!(say.map(|s| s.1.as_str()), Some("%s says: "), "{product}");
         assert!(
             okay.2 & wowlua_casc::globalstrings::IN_GAME != 0,
             "{product}"

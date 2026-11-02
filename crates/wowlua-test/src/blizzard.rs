@@ -93,8 +93,10 @@ fn cached(flavor: &str, installed: bool) -> Option<UiSource> {
     }
     // (an installed flavor's is the installation's, once read)
     #[cfg(feature = "native")]
-    if let Some((_, dir)) = installed.then(|| installed_dir(flavor)).flatten() {
-        if !wowlua_host::exists(dir.join(".wowlua-complete")) {
+    if let Some((casc, dir)) = installed.then(|| installed_dir(flavor)).flatten() {
+        if wowlua_host::read_to_string(dir.join(".wowlua-complete")).ok()
+            != Some(installed_stamp(&casc))
+        {
             return None;
         }
         return Some(UiSource {
@@ -191,7 +193,7 @@ fn source(flavor: &str, status: &dyn Fn(&str), installed: bool) -> Result<UiSour
             wowlua_host::remove_dir_all(&part).map_err(|e| e.to_string())?;
         }
         extract_installed(&casc, flavor, &names, &part)?;
-        wowlua_host::write(part.join(".wowlua-complete"), &casc.version)
+        wowlua_host::write(part.join(".wowlua-complete"), installed_stamp(&casc))
             .map_err(|e| e.to_string())?;
         if wowlua_host::exists(&dir) {
             wowlua_host::remove_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -298,6 +300,14 @@ pub fn extract_installed(
     )
     .map_err(|e| e.to_string())?;
     Ok(got)
+}
+
+/// What marks an installed client's copy complete: its build and how it
+/// was read (2: the global strings' escapes read, decision T566), so a
+/// copy an older wowlua read is read again.
+#[cfg(feature = "native")]
+fn installed_stamp(casc: &wowlua_casc::Casc) -> String {
+    format!("{} 2", casc.version)
 }
 
 /// The flavor's installed client, and where its UI code is kept.

@@ -9,7 +9,9 @@ use crate::tables::Table;
 pub const IN_GAME: u32 = 1;
 pub const AT_GLUE: u32 = 2;
 
-/// The build's global strings, `(name, text, flags)`, by name.
+/// The build's global strings, `(name, text, flags)`, by name. The table
+/// writes its texts as in Lua source (`\n`, `\32`, `\\`); they are read as
+/// the game sets them (Ketho's dumps of the game's values agree).
 pub fn read(casc: &Casc) -> Option<Vec<(String, String, u32)>> {
     let table = Table::open(casc, "GlobalStrings")?;
     let mut out: Vec<(String, String, u32)> = table
@@ -17,7 +19,7 @@ pub fn read(casc: &Casc) -> Option<Vec<(String, String, u32)>> {
         .filter_map(|r| {
             Some((
                 r.string("BaseTag")?,
-                r.string("TagText_lang")?,
+                unescape(&r.string("TagText_lang")?),
                 r.int("Flags"),
             ))
         })
@@ -48,6 +50,48 @@ pub fn lua(strings: &[(String, String, u32)]) -> String {
     out
 }
 
+/// A text written as in a Lua string read: `\n`, `\t`, `\r`, `\\`, `\"`,
+/// `\'` and `\ddd` (a byte); any other backslash kept.
+fn unescape(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' || i + 1 == b.len() {
+            out.push(b[i]);
+            i += 1;
+            continue;
+        }
+        let c = b[i + 1];
+        let simple = match c {
+            b'n' => Some(b'\n'),
+            b't' => Some(b'\t'),
+            b'r' => Some(b'\r'),
+            b'\\' | b'"' | b'\'' => Some(c),
+            _ => None,
+        };
+        let digits = b[i + 1..]
+            .iter()
+            .take(3)
+            .take_while(|d| d.is_ascii_digit())
+            .count();
+        let byte = (digits > 0)
+            .then(|| s[i + 1..i + 1 + digits].parse::<u8>().ok())
+            .flatten();
+        if let Some(e) = simple {
+            out.push(e);
+            i += 2;
+        } else if let Some(n) = byte {
+            out.push(n);
+            i += 1 + digits;
+        } else {
+            out.push(b'\\');
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
 fn quoted(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -69,6 +113,19 @@ fn quoted(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The table's texts as the game has them (Ketho's dump of camelot's:
+    /// `CHAT_SAY_GET = "%s says: "`, `|TInterface\GroupFrame\…|t`).
+    #[test]
+    fn the_tables_escapes_are_read() {
+        assert_eq!(unescape(r"%s says:\32"), "%s says: ");
+        assert_eq!(
+            unescape(r#"|TInterface\\Icons\\X:16|t a\nb \"q\" \x"#),
+            "|TInterface\\Icons\\X:16|t a\nb \"q\" \\x"
+        );
+        assert_eq!(unescape(r"end\"), "end\\");
+        assert_eq!(unescape(r"\999"), "\\999");
+    }
 
     #[test]
     fn strings_are_written_as_lua() {
