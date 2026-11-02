@@ -15,12 +15,29 @@ fn client() -> Option<wowlua_render::client::CascClientData> {
     )))
 }
 
+/// What 70707's server changed (its hotfixes) since the recordings
+/// (70425): those spells' base cooldowns, the achievement's trait currency
+/// (until they are recorded again: tests/ingame/PROBES.md, "The Camelot
+/// update").
+const NEWER: &[&str] = &[
+    "GetSpellBaseCooldown(1240044)",
+    "GetSpellBaseCooldown(1240045)",
+    "GetSpellBaseCooldown(1240046)",
+    "GetSpellBaseCooldown(1240047)",
+    "GetSpellBaseCooldown(400640)",
+    "C_Traits.GetTraitCurrencyForAchievement(4225, 64283)",
+];
+
 fn check(prefix: &str, at_least: usize) {
     let Some(data) = client() else {
         eprintln!("no camelot client: skipped");
         return;
     };
     let (checked, wrong) = wowlua_engine::recorded::compare_with_client(&data, prefix);
+    let wrong: Vec<String> = wrong
+        .into_iter()
+        .filter(|w| !NEWER.iter().any(|n| w.starts_with(n)))
+        .collect();
     eprintln!("{prefix}: {checked} answers, {} differ", wrong.len());
     assert!(checked >= at_least, "{checked}");
     assert!(

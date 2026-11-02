@@ -25,6 +25,7 @@ All notable changes to wowlua. Each minor version closes a milestone of the [roa
 
 ### Fixed
 
+- On camelot, the races' racial spells follow WoW Forever 70707 with the server's changes: the Orcs' Command (was Savage), the Dwarves' Artisan's Precision (was Earth Fury). Once the game has reached its login screen, the 3D world, talents, spells and atlases read from your installation follow the server's changes too.
 - With WoW Forever's latest update (1.60.1.70707) installed, `test.blizzard-ui` loads Blizzard's UI again, and spell descriptions read from your installation show their durations again.
 - Blizzard's global strings read from your installation have their line breaks, trailing spaces and backslashes: chat lines read "says: ", not `says:\32`.
 - `wowlua publish` with a missing or wrong token now shows the registry's reason on Windows, not a connection error.
