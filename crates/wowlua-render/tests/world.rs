@@ -550,10 +550,12 @@ mock.advanceFrames(2, 1000 / 60)",
         let image = r
             .render_blocking(&scene, 1.0, None, &mut assets)
             .expect("drawn");
-        // (a few more frames while the player's model is still being read)
+        // (more frames while the player's model is still being read: up to
+        // 20 seconds, a busy machine reads slowly)
         let wanted = if flavor == "camelot" { (0, 3) } else { (1, 0) };
         let mut image = image;
-        for _ in 0..10 {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while std::time::Instant::now() < until {
             if (r.world_blobs(), r.world_sun_maps()) == wanted {
                 break;
             }
@@ -693,6 +695,70 @@ mock.advanceFrames(2, 1000 / 60)",
             let png = wowlua_render::encode_png(image).expect("encoded");
             std::fs::write(
                 std::path::PathBuf::from(&dir).join(format!("edges-{name}.png")),
+                png,
+            )
+            .expect("written");
+        }
+    }
+}
+
+/// Sharper terrain (decision T579): the game's texture filtering
+/// (`textureFilteringMode`, its default 5: 16x anisotropic) sharpens the
+/// ground far ahead, and its shine (`specular`) lights it where its
+/// layers' alphas say.
+#[test]
+fn the_ground_is_sharp_and_shines() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+C_CVar.SetCVar('ffxAntiAliasingMode', '0')
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut shot = |vm: &mut Vm, settings: &str| {
+        run(vm, settings);
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn")
+    };
+    let sharp = shot(
+        &mut vm,
+        "C_CVar.SetCVar('textureFilteringMode', '5') C_CVar.SetCVar('specular', '1')",
+    );
+    let blurred = shot(&mut vm, "C_CVar.SetCVar('textureFilteringMode', '1')");
+    let dull = shot(
+        &mut vm,
+        "C_CVar.SetCVar('textureFilteringMode', '5') C_CVar.SetCVar('specular', '0')",
+    );
+    let differ = |a: &wowlua_render::Rgba, b: &wowlua_render::Rgba| {
+        a.pixels
+            .chunks(4)
+            .zip(b.pixels.chunks(4))
+            .filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 8))
+            .count()
+    };
+    let (by_filtering, by_shine) = (differ(&sharp, &blurred), differ(&sharp, &dull));
+    eprintln!("filtering changed {by_filtering} pixels, the shine {by_shine}");
+    assert!(
+        by_filtering > 1000 && by_shine > 1000,
+        "{by_filtering}, {by_shine}"
+    );
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        for (name, image) in [("sharp", &sharp), ("blurred", &blurred), ("dull", &dull)] {
+            let png = wowlua_render::encode_png(image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(&dir).join(format!("ground-{name}.png")),
                 png,
             )
             .expect("written");

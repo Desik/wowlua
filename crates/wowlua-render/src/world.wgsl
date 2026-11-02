@@ -1,7 +1,7 @@
 // The 3D world's terrain (decision T522): each chunk's four texture
 // layers blended by its blend map, lit by the zone's light (its ambient,
 // and its direct light by how the ground faces the sun) and faded into the
-// fog with distance. Where its baked shadow (decision T563) falls, its
+// fog with distance; shining where its layers' alphas say (decision T579). Where its baked shadow (decision T563) falls, its
 // light is less by the light's shadow; under the units, their blob
 // shadows; where the sun's shadow maps shade it (T564), its direct light
 // is gone.
@@ -35,6 +35,8 @@ struct Globals {
     shadow_texels: vec4<f32>,
     shadow: vec4<f32>,
     look: vec4<f32>,
+    // The terrain's shine (decision T579): x on, y its exponent.
+    terrain: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -154,13 +156,23 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
     // (each texture eight times across a chunk)
     let t = i.uv * 8.0;
     let a = textureSample(blend, clamped, i.uv);
-    var c = textureSample(layer0, tiled, t).rgb;
-    c = mix(c, textureSample(layer1, tiled, t).rgb, a.r);
-    c = mix(c, textureSample(layer2, tiled, t).rgb, a.g);
-    c = mix(c, textureSample(layer3, tiled, t).rgb, a.b);
+    let s0 = textureSample(layer0, tiled, t);
+    let s1 = textureSample(layer1, tiled, t);
+    let s2 = textureSample(layer2, tiled, t);
+    let s3 = textureSample(layer3, tiled, t);
+    var c = mix(mix(mix(s0.rgb, s1.rgb, a.r), s2.rgb, a.g), s3.rgb, a.b);
+    // (the layers' alphas: their shine, blended as their colors: T579)
+    let shine = mix(mix(mix(s0.a, s1.a, a.r), s2.a, a.g), s3.a, a.b);
     let n = normalize(i.normal);
-    let sun = max(dot(n, g.sun.xyz), 0.0) * sunlight(i.pos, n);
-    let lit = (g.ambient.rgb + g.direct.rgb * sun) * (1.0 - a.a * g.ambient.w) * blobs(i.pos);
+    let reach = sunlight(i.pos, n);
+    let sun = max(dot(n, g.sun.xyz), 0.0) * reach;
+    let shade = (1.0 - a.a * g.ambient.w) * blobs(i.pos);
+    let lit = (g.ambient.rgb + g.direct.rgb * sun) * shade;
+    // The sun's shine off the ground where its layers' alphas say
+    // (`specular`, T579): Blinn-Phong, in the direct light's color.
+    let half_way = normalize(g.sun.xyz + normalize(g.eye.xyz - i.pos));
+    let gloss = pow(max(dot(n, half_way), 0.0), g.terrain.y) * shine * g.terrain.x;
+    let shone = c * lit + g.direct.rgb * gloss * reach * shade * step(0.0, dot(n, g.sun.xyz));
     let fog = clamp((i.far - g.fog.w) / max(g.eye.w - g.fog.w, 1.0), 0.0, 1.0);
-    return vec4<f32>(mix(c * lit, g.fog.rgb, fog), 1.0);
+    return vec4<f32>(mix(shone, g.fog.rgb, fog), 1.0);
 }

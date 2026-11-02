@@ -61,7 +61,13 @@ struct Globals {
     shadow_texels: [f32; 4],
     shadow: [f32; 4],
     look: [f32; 4],
+    /// The terrain's shine (decision T579): x on (`specular`), y its
+    /// exponent.
+    terrain: [f32; 4],
 }
+
+/// The terrain's shine's exponent (decision T579; unverified).
+const TERRAIN_SHINE: f32 = 20.0;
 
 /// The game's blob shadow (`textures/shadowblob.blp`, decision T563).
 const BLOB_FILE: u32 = 186_183;
@@ -525,6 +531,8 @@ struct Setup {
     compare: wgpu::Sampler,
     chunk_layout: wgpu::BindGroupLayout,
     tiled: wgpu::Sampler,
+    /// The terrain's layers' (T579): as `tiled`, from `terrainMipLevel`.
+    terrain: wgpu::Sampler,
     clamped: wgpu::Sampler,
 }
 
@@ -536,6 +544,9 @@ pub(crate) struct World {
     /// The samples the world's pipelines and targets have (its MSAA,
     /// decision T578; 0 before the first frame).
     pub(crate) samples: u32,
+    /// Its samplers' filtering and the terrain's textures' detail
+    /// (`textureFilteringMode`, `terrainMipLevel`; decision T579).
+    textures: (u32, u32),
     /// The multisampled color target the world draws into with MSAA, the
     /// depth buffer's size.
     msaa_color: Option<wgpu::TextureView>,
@@ -591,6 +602,31 @@ pub(crate) fn msaa(count: u32) -> wgpu::MultisampleState {
         count: count.max(1),
         ..Default::default()
     }
+}
+
+/// A repeating sampler as the game's texture filtering says (decision
+/// T579, `textureFilteringMode`): 0 bilinear, 1 trilinear, 2 to 5
+/// anisotropic 2x to 16x; from mip `min_lod` (`terrainMipLevel`).
+fn world_sampler(d: &wgpu::Device, filtering: u32, min_lod: f32) -> wgpu::Sampler {
+    d.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("world"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: if filtering == 0 {
+            wgpu::MipmapFilterMode::Nearest
+        } else {
+            wgpu::MipmapFilterMode::Linear
+        },
+        lod_min_clamp: min_lod,
+        anisotropy_clamp: if filtering >= 2 {
+            1 << (filtering - 1).min(4)
+        } else {
+            1
+        },
+        ..Default::default()
+    })
 }
 
 /// The samples the world draws with for multisampling's (decision T578):
@@ -1112,7 +1148,8 @@ impl Renderer {
             no_maps,
             compare,
             chunk_layout,
-            tiled: sampler(wgpu::AddressMode::Repeat),
+            tiled: world_sampler(d, self.world.textures.0, 0.0),
+            terrain: world_sampler(d, self.world.textures.0, self.world.textures.1 as f32),
             clamped,
         });
     }
@@ -1205,7 +1242,7 @@ impl Renderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 5,
-                            resource: wgpu::BindingResource::Sampler(&setup.tiled),
+                            resource: wgpu::BindingResource::Sampler(&setup.terrain),
                         },
                         wgpu::BindGroupEntry {
                             binding: 6,
@@ -1354,12 +1391,15 @@ impl Renderer {
     ) {
         // (multisampling, T578: a new sample count makes the world's
         // pipelines and targets anew)
+        // (and the texture settings, T579: samplers anew)
         let samples = samples_for(w.msaa);
-        if self.world.samples != samples {
+        let textures = (w.filtering, w.terrain_mip);
+        if self.world.samples != samples || self.world.textures != textures {
             let still = self.world.still_props;
             self.world = World::default();
             self.world.still_props = still;
             self.world.samples = samples;
+            self.world.textures = textures;
         }
         let scale = w.render_scale;
         let size = (
@@ -2001,6 +2041,7 @@ impl Renderer {
                 let l = f32s(w.look);
                 [l[0], l[1], l[2], 0.0]
             },
+            terrain: [f32::from(u8::from(w.specular)), TERRAIN_SHINE, 0.0, 0.0],
         };
         // The weather (T565): what falls, how much, lit by the light.
         let drops = self.world_weather(w, &globals, direct, ambient, assets);
@@ -3498,6 +3539,9 @@ mod tests {
             weather_density: 2.0,
             msaa: 1,
             post_aa: 0,
+            filtering: 5,
+            specular: true,
+            terrain_mip: 0,
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);
