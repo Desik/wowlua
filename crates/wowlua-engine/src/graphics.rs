@@ -1,10 +1,10 @@
 //! The Graphics settings (decision T561): a setting of the Graphics panel
 //! taking a level sets the CVars the client sets for it (`shadowMode`,
 //! `shadowNumCascades`, …), and the overall quality (`graphicsQuality`)
-//! sets each setting's level, as the client does: `data/camelot-graphics.txt`
-//! (`/stdtest engine graphics`), else for the overall quality the recorded
-//! `GetGraphicsCVarValueForQualityLevel` answers. Other flavors' are not
-//! recorded yet.
+//! sets each setting's level, as the client does: `data/<flavor>-graphics.txt`
+//! (`/stdtest engine graphics` on each client), else on camelot for the
+//! overall quality the recorded `GetGraphicsCVarValueForQualityLevel`
+//! answers.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -18,8 +18,17 @@ type Levels = HashMap<(String, u32), Vec<(String, String)>>;
 
 fn levels(flavor: &str) -> Option<&'static Levels> {
     static CAMELOT: OnceLock<Levels> = OnceLock::new();
-    (flavor == "camelot")
-        .then(|| CAMELOT.get_or_init(|| parse(include_str!("../data/camelot-graphics.txt"))))
+    static VANILLA: OnceLock<Levels> = OnceLock::new();
+    static TBC: OnceLock<Levels> = OnceLock::new();
+    static MISTS: OnceLock<Levels> = OnceLock::new();
+    let (cell, text) = match flavor {
+        "camelot" => (&CAMELOT, include_str!("../data/camelot-graphics.txt")),
+        "vanilla" => (&VANILLA, include_str!("../data/vanilla-graphics.txt")),
+        "tbc" => (&TBC, include_str!("../data/tbc-graphics.txt")),
+        "mists" => (&MISTS, include_str!("../data/mists-graphics.txt")),
+        _ => return None,
+    };
+    Some(cell.get_or_init(|| parse(text)))
 }
 
 fn parse(text: &str) -> Levels {
@@ -104,7 +113,7 @@ fn apply(vm: &mut Vm, name: &str, value: &str, tell: bool) {
     // level as the client answers it (by the overall quality's value: its
     // default 6 gives the Shadow Quality default 4), each setting then
     // following.
-    if name.eq_ignore_ascii_case("graphicsQuality") {
+    if name.eq_ignore_ascii_case("graphicsQuality") && engine(vm).flavor == "camelot" {
         for setting in SETTINGS {
             let call =
                 format!("GetGraphicsCVarValueForQualityLevel(\"{setting}\", {level}, false)");

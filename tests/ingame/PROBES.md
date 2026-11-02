@@ -1127,17 +1127,32 @@ clear day and watch the trees and bushes about it for ten seconds.
 
 ## The Graphics settings (decision T561)
 
-On WoW Forever: from its launch on 5 November 2026 (no login before).
+What each Graphics setting's levels set, recorded on each client. It
+changes your graphics settings for about a minute and puts every one back
+at the end. The Classic clients can be recorded now; WoW Forever from its
+launch on 5 November 2026 (no login before).
 
-What each Graphics setting's levels set, recorded on WoW Forever (and,
-later, each Classic client). It changes your graphics settings for about
-a minute and puts every one back at the end.
+1. **Classic Era**:
+   1. in `tests/ingame`: `wowlua install --client _classic_era_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest --client _classic_era_`
+2. **TBC Anniversary**:
+   1. in `tests/ingame`: `wowlua install --client _anniversary_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest --client _anniversary_`
+3. **MoP Classic**:
+   1. in `tests/ingame`: `wowlua install --client _classic_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest --client _classic_`
+4. **WoW Forever** (from 5 November):
+   1. in `tests/ingame`: `wowlua install --client _forever_`
+   2. in game: `/reload`, then `/stdtest engine graphics`, wait for
+      "engine graphics: … lines", then `/reload`
+   3. `cargo xtask ingest`
 
-1. **Install StdTest**: in `tests/ingame`, `wowlua install --client _forever_`,
-   then `/reload` in game.
-2. **Record**: `/stdtest engine graphics`, wait for "engine graphics: … lines",
-   then `/reload`.
-3. **Take it in**: `cargo xtask ingest`.
-
-   wowlua: `crates/wowlua-engine/data/camelot-graphics.txt` has only the
-   shadow levels seen in Config.wtf files (unverified). Recorded: (to do)
+   wowlua: `crates/wowlua-engine/data/<flavor>-graphics.txt`; camelot's has
+   only the shadow levels seen in Config.wtf files (unverified), the
+   Classic clients' none. Recorded: (to do)
