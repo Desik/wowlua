@@ -541,7 +541,9 @@ places a test gives stay as they are.
 The world is lit as in the game: the zone's sky, sunlight, ambient light and
 fog come from your installation's light tables at the realm's time of day,
 so a profile's `"time": "21:30"` or `mock.setTimeOfDay(21, 30)` shows the
-evening. The zone's sky models (clouds, stars, a storm) show behind it.
+evening. The zone's sky models (clouds, stars, a storm) show behind it,
+and its lakes, rivers, sea and lava are drawn with their animated surfaces,
+the ground under the water showing through.
 Each game version has its own light, as its client does.
 
 With the world on, units are named as in the game. A unit's name floats

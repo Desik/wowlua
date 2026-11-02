@@ -21,6 +21,7 @@ pub mod globalcolors;
 pub mod globalstrings;
 pub mod jenkins;
 pub mod light;
+pub mod liquid;
 pub mod m2;
 pub mod obj;
 mod salsa20;

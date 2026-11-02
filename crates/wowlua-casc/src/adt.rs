@@ -1,7 +1,7 @@
 //! A terrain tile (decision T522): a map's ADT, 533⅓ yards a side in
 //! 16 × 16 chunks, read from its root file (each chunk's heights, normals
 //! and holes) and its textures file (`_tex0`: the textures, each chunk's
-//! layers and their blends).
+//! layers and their blends), and its liquids (`MH2O`, decision T557).
 //!
 //! Places are the world's: north and west yards from the map's middle. A
 //! tile's north-west corner is at `(32 - row, 32 - column)` tiles; a
@@ -21,6 +21,71 @@ pub const UNIT: f64 = CHUNK / 8.0;
 pub struct Tile {
     pub chunks: Vec<Chunk>,
     pub textures: Vec<u32>,
+    /// Its water, lava and slime, chunk by chunk.
+    pub liquids: Vec<Liquid>,
+}
+
+/// A body of liquid over part of a chunk (`MH2O`'s instance): over the
+/// chunk's 8 × 8 squares from `x`, `y` (west to east, north to south),
+/// `width` by `height` of them, those `exists` names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Liquid {
+    /// The chunk's column and row in the tile.
+    pub chunk: (u32, u32),
+    /// `LiquidType`.
+    pub kind: u32,
+    /// `LiquidObject` (42 and up), else the vertex format itself.
+    pub object: u32,
+    pub min: f32,
+    pub max: f32,
+    pub x: u8,
+    pub y: u8,
+    pub width: u8,
+    pub height: u8,
+    /// Each square of the `width` × `height`, row by row.
+    pub exists: Vec<bool>,
+    /// The vertices' data as stored, `(width + 1) × (height + 1)` of them;
+    /// read by its vertex format ([`Liquid::heights`]).
+    pub data: Vec<u8>,
+}
+
+impl Liquid {
+    /// The vertices' heights and depths (0 to 255) by the vertex format:
+    /// 0 heights then depths, 1 heights then texture coordinates, 2 depths
+    /// alone (flat at `min`), 3 heights, coordinates, depths. A height
+    /// outside the liquid's own `min` to `max` is a format misjudged: its
+    /// level (`min`) instead.
+    pub fn heights(&self, format: u32) -> (Vec<f32>, Vec<u8>) {
+        let (mut heights, depths) = self.stored(format);
+        for h in &mut heights {
+            if !h.is_finite() || *h < self.min - 0.5 || *h > self.max + 0.5 {
+                *h = self.min;
+            }
+        }
+        (heights, depths)
+    }
+
+    fn stored(&self, format: u32) -> (Vec<f32>, Vec<u8>) {
+        let n = (usize::from(self.width) + 1) * (usize::from(self.height) + 1);
+        // (none stored: flat at its level, deep)
+        if self.data.is_empty() {
+            return (vec![self.min; n], vec![255; n]);
+        }
+        let height = |i: usize| f32_at(&self.data, i * 4);
+        let byte = |at: usize| self.data.get(at).copied().unwrap_or(255);
+        match format {
+            0 => (
+                (0..n).map(height).collect(),
+                (0..n).map(|i| byte(n * 4 + i)).collect(),
+            ),
+            1 => ((0..n).map(height).collect(), vec![255; n]),
+            3 => (
+                (0..n).map(height).collect(),
+                (0..n).map(|i| byte(n * 8 + i)).collect(),
+            ),
+            _ => (vec![self.min; n], (0..n).map(byte).collect()),
+        }
+    }
 }
 
 /// A chunk: its heights over `base`, its normals, its holes and its
@@ -107,6 +172,10 @@ fn f32_at(b: &[u8], at: usize) -> f32 {
 pub fn read(root: &[u8], tex: Option<&[u8]>, big_alpha: bool) -> Option<Tile> {
     let mut tile = Tile::default();
     for (tag, body) in chunks(root) {
+        if &tag == b"MH2O" {
+            tile.liquids = liquids(body);
+            continue;
+        }
         if &tag != b"MCNK" || body.len() < 128 {
             continue;
         }
@@ -153,6 +222,63 @@ pub fn read(root: &[u8], tex: Option<&[u8]>, big_alpha: bool) -> Option<Tile> {
         read_textures(&mut tile, tex, big_alpha);
     }
     Some(tile)
+}
+
+/// `MH2O`: for each of the 256 chunks (by index, `y * 16 + x`) its
+/// instances; offsets from the chunk's data.
+fn liquids(body: &[u8]) -> Vec<Liquid> {
+    let mut out = Vec::new();
+    for i in 0..256usize {
+        let at = i * 12;
+        let (first, count) = (u32_at(body, at) as usize, u32_at(body, at + 4) as usize);
+        if first == 0 || count == 0 {
+            continue;
+        }
+        for k in 0..count.min(16) {
+            let o = first + k * 24;
+            if o + 24 > body.len() {
+                break;
+            }
+            let half = |a: usize| u16::from_le_bytes([body[a], body[a + 1]]);
+            let (x, y, width, height) = (body[o + 12], body[o + 13], body[o + 14], body[o + 15]);
+            if width == 0 || height == 0 || x + width > 8 || y + height > 8 {
+                continue;
+            }
+            let squares = usize::from(width) * usize::from(height);
+            let bits = u32_at(body, o + 16) as usize;
+            let exists = (0..squares)
+                .map(|s| {
+                    bits == 0
+                        || body
+                            .get(bits + s / 8)
+                            .is_some_and(|b| b & (1 << (s % 8)) != 0)
+                })
+                .collect();
+            let verts = (usize::from(width) + 1) * (usize::from(height) + 1);
+            let data_at = u32_at(body, o + 20) as usize;
+            let data = if data_at == 0 {
+                Vec::new()
+            } else {
+                body.get(data_at..(data_at + verts * 9).min(body.len()))
+                    .map(<[u8]>::to_vec)
+                    .unwrap_or_default()
+            };
+            out.push(Liquid {
+                chunk: ((i % 16) as u32, (i / 16) as u32),
+                kind: u32::from(half(o)),
+                object: u32::from(half(o + 2)),
+                min: f32_at(body, o + 4),
+                max: f32_at(body, o + 8),
+                x,
+                y,
+                width,
+                height,
+                exists,
+                data,
+            });
+        }
+    }
+    out
 }
 
 /// The old 4 × 4 holes (a bit a 2 × 2 of squares) as 8 × 8.

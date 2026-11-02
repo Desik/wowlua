@@ -133,6 +133,8 @@ pub struct Library {
     pub(crate) solids_asked: u64,
     /// The build's outdoor light, read on first use (decision T555).
     lights: Option<Option<std::sync::Arc<crate::light::Lights>>>,
+    /// The build's liquids, read on first use (decision T557).
+    liquids: Option<Option<std::sync::Arc<crate::liquid::Liquids>>>,
 }
 
 /// A creature the installation knows (decision T531): from the client's
@@ -216,6 +218,14 @@ impl Library {
     pub fn lights(&mut self, casc: &Casc) -> Option<std::sync::Arc<crate::light::Lights>> {
         self.lights
             .get_or_insert_with(|| crate::light::Lights::read(casc).map(std::sync::Arc::new))
+            .clone()
+    }
+
+    /// The build's liquids (decision T557), read on first use; none where
+    /// its tables cannot be read.
+    pub fn liquids(&mut self, casc: &Casc) -> Option<std::sync::Arc<crate::liquid::Liquids>> {
+        self.liquids
+            .get_or_insert_with(|| crate::liquid::Liquids::read(casc).map(std::sync::Arc::new))
             .clone()
     }
 

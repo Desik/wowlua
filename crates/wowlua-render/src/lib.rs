@@ -80,6 +80,10 @@ pub trait Assets {
     ) -> Option<wowlua_casc::light::Sky> {
         None
     }
+    /// The build's liquids (decision T557).
+    fn liquids(&mut self) -> Option<std::sync::Arc<wowlua_casc::liquid::Liquids>> {
+        None
+    }
 }
 
 /// An atlas's part of its file.
