@@ -250,6 +250,16 @@ pub(crate) struct WorldModels {
 
 /// The pipeline key's blend for a faded actor's depth alone (T562).
 const DEPTH_ONLY: u16 = u16::MAX;
+/// The pipeline key's blend for the depth the sun sees (its shadow maps,
+/// T564).
+const SUN_DEPTH: u16 = u16::MAX - 1;
+/// How the depth the sun sees is pushed back (T564): against a surface's
+/// own shadow, the more the steeper it faces away.
+pub(crate) const SUN_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
+    constant: 2,
+    slope_scale: 2.0,
+    clamp: 0.0,
+};
 
 /// A batch to draw: its indices' range and how.
 #[derive(Clone)]
@@ -496,6 +506,14 @@ impl Renderer {
                 } else {
                     (blend_state(blend), wgpu::ColorWrites::ALL)
                 };
+                // (the depth the sun sees, no colors, pushed back against
+                // a surface's own shadow: T564)
+                let sun = blend == SUN_DEPTH;
+                let color = [Some(wgpu::ColorTargetState {
+                    format: crate::FORMAT,
+                    blend: state,
+                    write_mask: mask,
+                })];
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some("model"),
                     layout: Some(layout),
@@ -523,18 +541,18 @@ impl Renderer {
                         depth_write_enabled: Some(depth_write),
                         depth_compare: Some(wgpu::CompareFunction::LessEqual),
                         stencil: wgpu::StencilState::default(),
-                        bias: wgpu::DepthBiasState::default(),
+                        bias: if sun {
+                            SUN_BIAS
+                        } else {
+                            wgpu::DepthBiasState::default()
+                        },
                     }),
                     multisample: wgpu::MultisampleState::default(),
                     fragment: Some(wgpu::FragmentState {
                         module: shader,
-                        entry_point: Some("fs"),
+                        entry_point: Some(if sun { "fs_shadow" } else { "fs" }),
                         compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: crate::FORMAT,
-                            blend: state,
-                            write_mask: mask,
-                        })],
+                        targets: if sun { &[] } else { &color },
                     }),
                     multiview_mask: None,
                     cache: None,
@@ -1237,6 +1255,13 @@ impl Renderer {
                 self.model_pipeline(DEPTH_ONLY, true, true);
             }
         }
+        // (and the sun's: T564)
+        if !p.draws.is_empty() {
+            self.model_pipeline(SUN_DEPTH, true, false);
+        }
+        if !skin_draws.is_empty() {
+            self.model_pipeline(SUN_DEPTH, true, true);
+        }
         let skinned = match (&self.models.skin_layout, skin_draws.is_empty()) {
             (Some(Some((layout, _))), false) => {
                 let records: Vec<Record> = skin_draws.iter().map(|d| d.record).collect();
@@ -1332,6 +1357,70 @@ impl Renderer {
                 let i = i as u32;
                 pass.draw_indexed(d.start..d.end, 0, i..i + 1);
             }
+        }
+    }
+
+    /// What the world's models are drawn with as the sun sees them (its
+    /// shadow maps, decision T564): its matrix.
+    pub(crate) fn sun_model_group(&self, view_proj: Mat4) -> wgpu::BindGroup {
+        let mut globals = Vec::with_capacity(44);
+        globals.extend_from_slice(&view_proj);
+        globals.extend_from_slice(&m2::IDENTITY);
+        globals.extend_from_slice(&[0.0; 12]);
+        let ubuf = crate::buffer_with(
+            &self.device,
+            &self.queue,
+            "world model sun",
+            bytemuck::cast_slice(&globals),
+            wgpu::BufferUsages::UNIFORM,
+        );
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("world model sun"),
+            layout: &self.models.layout.as_ref().unwrap().0,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ubuf.as_entire_binding(),
+            }],
+        })
+    }
+
+    /// Draws the world's models' depth as the sun sees them into one of
+    /// its shadow maps (decision T564, `group` its matrix): their opaque
+    /// and alpha keyed batches, the faded ones too (their shadows stay).
+    pub(crate) fn record_models_sun<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        m: &'a WorldModels,
+        group: &'a wgpu::BindGroup,
+    ) {
+        pass.set_bind_group(0, group, &[]);
+        if let (Some(vertices), Some(indices)) = (&m.vertices, &m.indices) {
+            pass.set_vertex_buffer(0, vertices.slice(..));
+            pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.set_pipeline(&self.models.pipelines[&(SUN_DEPTH, true, false)]);
+            for d in m.draws.iter().filter(|d| d.blend <= 1) {
+                pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
+                pass.draw_indexed(d.start..d.end, 0, 0..1);
+            }
+        }
+        let Some((skin, draws)) = &m.skinned else {
+            return;
+        };
+        pass.set_bind_group(2, skin, &[]);
+        pass.set_pipeline(&self.models.pipelines[&(SUN_DEPTH, true, true)]);
+        let mut bound = None;
+        for (i, d) in draws.iter().enumerate().filter(|(_, d)| d.blend <= 1) {
+            let Some((vertices, indices)) = self.models.meshes.get(&d.file) else {
+                continue;
+            };
+            if bound != Some(d.file) {
+                pass.set_vertex_buffer(0, vertices.slice(..));
+                pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+                bound = Some(d.file);
+            }
+            pass.set_bind_group(1, &self.models.groups[&d.tex], &[]);
+            let i = i as u32;
+            pass.draw_indexed(d.start..d.end, 0, i..i + 1);
         }
     }
 

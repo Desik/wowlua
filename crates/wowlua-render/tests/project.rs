@@ -23,6 +23,7 @@ fn north() -> WorldView {
         day_time: 1440.0,
         clutter_dist: 0.0,
         clutter_density: 0.0,
+        shadows: Default::default(),
     }
 }
 

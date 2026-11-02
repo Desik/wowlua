@@ -52,6 +52,15 @@ struct Globals {
     /// The units' blob shadows (decision T563): where each stands and its
     /// radius; `sun.w` how many.
     blobs: [[f32; 4]; BLOBS],
+    /// The sun's shadow maps (decision T564): each map's matrix, where each
+    /// ends (yards ahead of the eye), a texel's size in yards in each; how
+    /// many (0: none), soft, blended where they meet, a texel across (0 to
+    /// 1); the way the eye looks.
+    shadow_mats: [[f32; 16]; 4],
+    shadow_ends: [f32; 4],
+    shadow_texels: [f32; 4],
+    shadow: [f32; 4],
+    look: [f32; 4],
 }
 
 /// The game's blob shadow (`textures/shadowblob.blp`, decision T563).
@@ -143,6 +152,269 @@ fn blob_radius(reach: f32) -> f32 {
     (reach * 2.0).max(0.4)
 }
 
+/// How far ahead of the eye the sun's shadow maps reach (yards; decision
+/// T564, unverified): none at `shadowMode` 0, the units' shadows as far
+/// as `entityShadowFadeScale` at 1, then 100, 200 and 300 yards; within
+/// the view distance.
+fn sun_reach(s: &wowlua_engine::scene::Shadows, far: f64) -> f64 {
+    let reach = match s.mode {
+        0 => 0.0,
+        1 => s.entity_fade,
+        2 => 100.0,
+        3 => 200.0,
+        _ => 300.0,
+    };
+    reach.min(far)
+}
+
+/// How far behind its stretch of the view a shadow map reaches toward the
+/// sun (yards): what stands there casts into it.
+const SUN_BACK: f64 = 300.0;
+
+/// One of the sun's shadow maps (decision T564): the sun's view and its
+/// box, where it ends ahead of the eye, a texel's size (yards), the box's
+/// half width and depth.
+#[derive(Clone, Debug)]
+struct Cascade {
+    view: [f32; 16],
+    proj: [f32; 16],
+    end: f32,
+    texel: f32,
+    radius: f64,
+    depth: f64,
+}
+
+impl Cascade {
+    /// Whether a ball (`middle`, `reach` yards) is within the box.
+    fn covers(&self, middle: [f64; 3], reach: f64) -> bool {
+        let v = &self.view;
+        let at = |r: usize| {
+            f64::from(v[r]) * middle[0]
+                + f64::from(v[4 + r]) * middle[1]
+                + f64::from(v[8 + r]) * middle[2]
+                + f64::from(v[12 + r])
+        };
+        let (x, y, z) = (at(0), at(1), -at(2));
+        x.abs() <= self.radius + reach
+            && y.abs() <= self.radius + reach
+            && z >= -reach
+            && z <= self.depth + reach
+    }
+}
+
+/// The sun's shadow maps for the world's view (decision T564): `count`
+/// maps splitting the first `reach` yards ahead of the eye (the nearer
+/// smaller, the split 0.8 logarithmic), each a square about its stretch
+/// of the view seen from `toward` (the way to the sun) from `SUN_BACK`
+/// yards behind it, its middle kept on its texels so its shadows hold
+/// still as the eye moves.
+fn cascades(
+    w: &WorldView,
+    tan_x: f64,
+    tan_y: f64,
+    toward: [f64; 3],
+    reach: f64,
+    count: u32,
+    size: u32,
+) -> Vec<Cascade> {
+    const LAMBDA: f64 = 0.8;
+    let n = f64::from(count.max(1));
+    let first = 1.0f64.min(reach);
+    let split = |i: f64| {
+        LAMBDA * first * (reach / first).powf(i / n)
+            + (1.0 - LAMBDA) * (first + (reach - first) * i / n)
+    };
+    let right = [
+        w.look[1] * w.up[2] - w.look[2] * w.up[1],
+        w.look[2] * w.up[0] - w.look[0] * w.up[2],
+        w.look[0] * w.up[1] - w.look[1] * w.up[0],
+    ];
+    let len = (toward[0].powi(2) + toward[1].powi(2) + toward[2].powi(2)).sqrt();
+    let toward = toward.map(|v| v / len.max(1e-9));
+    let mut out = Vec::new();
+    let mut near = f64::from(NEAR);
+    for i in 1..=count.max(1) {
+        let far = split(f64::from(i));
+        let corners: Vec<[f64; 3]> = [near, far]
+            .iter()
+            .flat_map(|&d| {
+                [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)].map(|(sx, sy)| {
+                    [0, 1, 2].map(|k| {
+                        w.eye[k]
+                            + w.look[k] * d
+                            + right[k] * sx * d * tan_x
+                            + w.up[k] * sy * d * tan_y
+                    })
+                })
+            })
+            .collect();
+        let middle = [0, 1, 2].map(|k| corners.iter().map(|c| c[k]).sum::<f64>() / 8.0);
+        let radius = corners
+            .iter()
+            .map(|c| {
+                ((c[0] - middle[0]).powi(2)
+                    + (c[1] - middle[1]).powi(2)
+                    + (c[2] - middle[2]).powi(2))
+                .sqrt()
+            })
+            .fold(0.0, f64::max);
+        // (a steady size: whole half yards)
+        let radius = (radius * 2.0).ceil() / 2.0;
+        let back = radius + SUN_BACK;
+        let from = [0, 1, 2].map(|k| (middle[k] + toward[k] * back) as f32);
+        let up = if toward[2].abs() > 0.99 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 0.0, 1.0]
+        };
+        let mut view = crate::model::look_at(
+            from,
+            [-toward[0] as f32, -toward[1] as f32, -toward[2] as f32],
+            up,
+        );
+        let texel = 2.0 * radius / f64::from(size.max(1));
+        for k in [12, 13] {
+            view[k] = ((f64::from(view[k]) / texel).round() * texel) as f32;
+        }
+        let depth = back + radius;
+        let mut proj = [0.0f32; 16];
+        proj[0] = (1.0 / radius) as f32;
+        proj[5] = (1.0 / radius) as f32;
+        proj[10] = (-1.0 / depth) as f32;
+        proj[15] = 1.0;
+        out.push(Cascade {
+            view,
+            proj,
+            end: far as f32,
+            texel: texel as f32,
+            radius,
+            depth,
+        });
+        near = far;
+    }
+    out
+}
+
+impl Renderer {
+    /// Draws the sun's shadow maps (decision T564), each the depth it sees
+    /// in its box: by `shadowMode`, the units (1), the buildings and props
+    /// (2), the ground (3 and up).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_sun_maps(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        w: &WorldView,
+        maps: &[Cascade],
+        detailed: &[(i32, i32)],
+        placed: &[(u32, [f32; 16])],
+        doodad_ranges: &[(u32, u32, u32)],
+        models: Option<&crate::model::WorldModels>,
+        model_groups: &[wgpu::BindGroup],
+    ) {
+        let setup = self.world.setup.as_ref().expect("the world's setup");
+        let Some(layers) = setup.maps.as_ref().map(|m| &m.layers) else {
+            return;
+        };
+        let mode = w.shadows.mode;
+        for (k, c) in maps.iter().enumerate() {
+            let Some(layer) = layers.get(k) else {
+                break;
+            };
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("world sun"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: layer,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            let group = &setup.sun[k].1;
+            if mode >= 3 {
+                pass.set_pipeline(&setup.sun_pipeline);
+                pass.set_bind_group(0, group, &[]);
+                for &(x, y) in detailed {
+                    let Some(Some(tile)) = self.world.tiles.get(&(w.map, x, y)) else {
+                        continue;
+                    };
+                    pass.set_vertex_buffer(0, tile.vertices.slice(..));
+                    pass.set_index_buffer(tile.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    for ch in &tile.chunks {
+                        if ch.count == 0 || !c.covers(ch.center, CHUNK) {
+                            continue;
+                        }
+                        pass.draw_indexed(ch.start..ch.start + ch.count, 0, 0..1);
+                    }
+                }
+            }
+            if mode >= 2
+                && let (Some(bsetup), Some((instances, _))) = (
+                    self.world.building_setup.as_ref(),
+                    self.world.instances.as_ref(),
+                )
+            {
+                pass.set_pipeline(&bsetup.sun);
+                pass.set_bind_group(0, group, &[]);
+                for (i, (file, m)) in placed.iter().enumerate() {
+                    let Some(Some(b)) = self.world.buildings.get(file) else {
+                        continue;
+                    };
+                    let at = i as u64 * 64;
+                    pass.set_vertex_buffer(1, instances.slice(at..at + 64));
+                    let axis = |k: usize| [m[k * 4], m[k * 4 + 1], m[k * 4 + 2]];
+                    let scale = (0..3)
+                        .map(|k| {
+                            let a = axis(k);
+                            (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
+                        })
+                        .fold(0.0f32, f32::max);
+                    for g in &b.groups {
+                        let mid = g.middle;
+                        let world = [0, 1, 2].map(|r| {
+                            f64::from(
+                                m[12 + r] + m[r] * mid[0] + m[4 + r] * mid[1] + m[8 + r] * mid[2],
+                            )
+                        });
+                        if !c.covers(world, f64::from(g.reach * scale)) {
+                            continue;
+                        }
+                        pass.set_vertex_buffer(0, g.vertices.slice(..));
+                        pass.set_index_buffer(g.indices.slice(..), wgpu::IndexFormat::Uint16);
+                        for batch in g.batches.iter().filter(|b| !b.blended) {
+                            pass.set_bind_group(1, &batch.group, &[]);
+                            pass.draw_indexed(batch.start..batch.start + batch.count, 0, 0..1);
+                        }
+                    }
+                }
+                for &(file, first, count) in doodad_ranges {
+                    let Some(Some(d)) = self.world.doodads.get(&file) else {
+                        continue;
+                    };
+                    let (at, end) = (u64::from(first) * 64, u64::from(first + count) * 64);
+                    pass.set_vertex_buffer(1, instances.slice(at..end));
+                    pass.set_vertex_buffer(0, d.vertices.slice(..));
+                    pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    for batch in d.batches.iter().filter(|b| !b.blended) {
+                        pass.set_bind_group(1, &batch.group, &[]);
+                        pass.draw_indexed(batch.start..batch.start + batch.count, 0, 0..count);
+                    }
+                }
+            }
+            if mode >= 1
+                && let (Some(m), Some(g)) = (models, model_groups.get(k))
+            {
+                self.record_models_sun(&mut pass, m, g);
+            }
+        }
+    }
+}
+
 /// How far from the eye props move (yards; T558: nearer ones posed one by
 /// one, farther ones as they stand).
 const PROP_MOTION: f64 = 80.0;
@@ -171,6 +443,53 @@ pub fn project(w: &WorldView, width: u32, height: u32, p: [f64; 3]) -> Option<[f
     ])
 }
 
+/// The sun's shadow maps (decision T564): one texture of `cascades`
+/// layers, `size` texels a side; its view to look them up, each layer's
+/// to draw it.
+struct SunMaps {
+    array: wgpu::TextureView,
+    layers: Vec<wgpu::TextureView>,
+    size: u32,
+    cascades: u32,
+}
+
+fn sun_maps(d: &wgpu::Device, size: u32, cascades: u32) -> SunMaps {
+    let texture = d.create_texture(&wgpu::TextureDescriptor {
+        label: Some("world sun maps"),
+        size: wgpu::Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: cascades,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let array = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let layers = (0..cascades)
+        .map(|k| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: k,
+                array_layer_count: Some(1),
+                ..Default::default()
+            })
+        })
+        .collect();
+    SunMaps {
+        array,
+        layers,
+        size,
+        cascades,
+    }
+}
+
 struct GpuChunk {
     start: u32,
     count: u32,
@@ -195,6 +514,15 @@ struct Setup {
     globals_group: wgpu::BindGroup,
     /// The blob shadow's texture the globals bind (T563; white: none).
     blob: usize,
+    /// The sun's shadow maps (T564): the ground's depth pipeline, each
+    /// map's globals as the sun sees (binding no maps), the maps (none
+    /// while the settings draw none), what stands in for them, and how
+    /// they are compared.
+    sun_pipeline: wgpu::RenderPipeline,
+    sun: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    maps: Option<SunMaps>,
+    no_maps: SunMaps,
+    compare: wgpu::Sampler,
     chunk_layout: wgpu::BindGroupLayout,
     tiled: wgpu::Sampler,
     clamped: wgpu::Sampler,
@@ -215,6 +543,8 @@ pub(crate) struct World {
     pub(crate) clutter: usize,
     /// The units' blob shadows drawn in the last frame (T563).
     pub(crate) blobs: usize,
+    /// The sun's shadow maps drawn in the last frame (T564).
+    pub(crate) sun_maps: usize,
     /// Every prop as it stands, none posed one by one (the frame time
     /// measurement's, `bench.rs`).
     pub(crate) still_props: bool,
@@ -272,13 +602,14 @@ fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-/// The world's globals bound with the blob shadow's texture (T563).
+/// The world's globals bound with the blob shadow's texture (T563) and
+/// the sun's shadow maps (T564), and their samplers.
 fn globals_group(
     d: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     globals: &wgpu::Buffer,
-    blob: &wgpu::TextureView,
-    sampler: &wgpu::Sampler,
+    [blob, maps]: [&wgpu::TextureView; 2],
+    [sampler, compare]: [&wgpu::Sampler; 2],
 ) -> wgpu::BindGroup {
     d.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("world globals"),
@@ -295,6 +626,14 @@ fn globals_group(
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(maps),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::Sampler(compare),
             },
         ],
     })
@@ -430,6 +769,23 @@ impl Renderer {
                 // (the blob shadow's texture: T563)
                 texture_entry(1),
                 sampler_entry(2),
+                // (the sun's shadow maps: T564)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
             ],
         });
         let chunk_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -644,13 +1000,73 @@ impl Renderer {
             }],
         });
         let clamped = sampler(wgpu::AddressMode::ClampToEdge);
-        let globals_group = globals_group(
+        let compare = d.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("world sun maps"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let no_maps = sun_maps(d, 1, 1);
+        let white = &self.textures[self.white].view;
+        let main_group = globals_group(
             d,
             &globals_layout,
             &globals,
-            &self.textures[self.white].view,
-            &clamped,
+            [white, &no_maps.array],
+            [&clamped, &compare],
         );
+        // The sun's view of the ground, its depth alone (T564).
+        let sun = (0..4)
+            .map(|_| {
+                let b = d.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("world sun globals"),
+                    size: std::mem::size_of::<Globals>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let g = globals_group(
+                    d,
+                    &globals_layout,
+                    &b,
+                    [white, &no_maps.array],
+                    [&clamped, &compare],
+                );
+                (b, g)
+            })
+            .collect();
+        let sun_pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("world sun"),
+            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("world sun"),
+                bind_group_layouts: &[Some(&globals_layout)],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<TVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2],
+                })],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: wgpu::StencilState::default(),
+                bias: crate::model::SUN_BIAS,
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: None,
+            multiview_mask: None,
+            cache: None,
+        });
         self.world.setup = Some(Setup {
             pipeline,
             sky_pipeline,
@@ -658,29 +1074,42 @@ impl Renderer {
             sky_group,
             globals_layout,
             globals,
-            globals_group,
+            globals_group: main_group,
             blob: self.white,
+            sun_pipeline,
+            sun,
+            maps: None,
+            no_maps,
+            compare,
             chunk_layout,
             tiled: sampler(wgpu::AddressMode::Repeat),
             clamped,
         });
     }
 
-    /// The game's blob shadow, read on first use and bound with the
-    /// globals (decision T563); whether the build has it.
-    fn world_blob(&mut self, assets: &mut dyn Assets) -> bool {
+    /// The game's blob shadow (decision T563), read on first use, and the
+    /// sun's shadow maps the settings want (`maps`: their size and how
+    /// many; T564), made as they change: bound with the globals. Whether
+    /// the build has the blob.
+    fn world_bindings(&mut self, assets: &mut dyn Assets, maps: Option<(u32, u32)>) -> bool {
         let t = match self.model_texture(BLOB_FILE, assets) {
             t if t == self.missing => self.white,
             t => t,
         };
         let setup = self.world.setup.as_mut().expect("the world's setup");
-        if setup.blob != t {
+        let mut changed = setup.blob != t;
+        if setup.maps.as_ref().map(|m| (m.size, m.cascades)) != maps {
+            setup.maps = maps.map(|(size, n)| sun_maps(&self.device, size, n));
+            changed = true;
+        }
+        if changed {
+            let array = setup.maps.as_ref().unwrap_or(&setup.no_maps);
             setup.globals_group = globals_group(
                 &self.device,
                 &setup.globals_layout,
                 &setup.globals,
-                &self.textures[t].view,
-                &setup.clamped,
+                [&self.textures[t].view, &array.array],
+                [&setup.clamped, &setup.compare],
             );
             setup.blob = t;
         }
@@ -1381,9 +1810,15 @@ impl Renderer {
         };
         // The units' blob shadows (decision T563): the nearest the eye
         // whose models are read, each by how wide its body is.
+        // (by the shadow settings, T564: the units' blobs where the sun's
+        // maps draw none of theirs, the ground's baked shadows where they
+        // draw none of the buildings' and props')
+        let mode = w.shadows.mode;
+        let reach = sun_reach(&w.shadows, w.far);
+        let maps = (reach > 0.0).then_some((w.shadows.size, w.shadows.cascades));
         let mut blobs = [[0.0f32; 4]; BLOBS];
         self.world.blobs = 0;
-        if self.world_blob(assets) {
+        if self.world_bindings(assets, maps) && mode == 0 {
             let mut near: Vec<&wowlua_engine::scene::WorldUnit> = w.units.iter().collect();
             let d2 = |u: &&wowlua_engine::scene::WorldUnit| {
                 (u.at[0] - w.eye[0]).powi(2) + (u.at[1] - w.eye[1]).powi(2)
@@ -1407,7 +1842,34 @@ impl Renderer {
             sun[3] = n as f32;
             self.world.blobs = n;
         }
-        let shadow = light.as_ref().map_or(SHADOW, |l| l.shadow);
+        let shadow = if mode <= 1 {
+            light.as_ref().map_or(SHADOW, |l| l.shadow)
+        } else {
+            0.0
+        };
+        // The sun's shadow maps (T564): from the sun (the moon at night),
+        // each about its stretch of the view.
+        let toward = [f64::from(sun[0]), f64::from(sun[1]), f64::from(sun[2])];
+        let sun_maps = match maps {
+            Some((size, n)) if toward[2] > 0.0 => cascades(
+                w,
+                (w.fov / 2.0).tan(),
+                (f64::from(fov_y) / 2.0).tan(),
+                toward,
+                reach,
+                n,
+                size,
+            ),
+            _ => Vec::new(),
+        };
+        self.world.sun_maps = sun_maps.len();
+        let mut shadow_mats = [[0.0f32; 16]; 4];
+        let (mut shadow_ends, mut shadow_texels) = ([0.0f32; 4], [0.0f32; 4]);
+        for (k, c) in sun_maps.iter().enumerate() {
+            shadow_mats[k] = wowlua_casc::m2::mul(&c.proj, &c.view);
+            shadow_ends[k] = c.end;
+            shadow_texels[k] = c.texel;
+        }
         let globals = Globals {
             view: crate::model::look_at(f32s(w.eye), f32s(w.look), f32s(w.up)),
             proj: crate::model::perspective(fov_y, aspect, NEAR, w.far as f32),
@@ -1422,6 +1884,19 @@ impl Renderer {
             ocean: water.2,
             ocean_far: water.3,
             blobs,
+            shadow_mats,
+            shadow_ends,
+            shadow_texels,
+            shadow: [
+                sun_maps.len() as f32,
+                f32::from(u8::from(w.shadows.soft)),
+                f32::from(u8::from(w.shadows.blend)),
+                1.0 / w.shadows.size.max(1) as f32,
+            ],
+            look: {
+                let l = f32s(w.look);
+                [l[0], l[1], l[2], 0.0]
+            },
         };
         let sky_globals = {
             let l = f32s(w.look);
@@ -1597,6 +2072,33 @@ impl Renderer {
             b: f64::from(fog[2]),
             a: 1.0,
         });
+        // The sun's shadow maps first (T564): each as the sun sees it.
+        if !sun_maps.is_empty() {
+            for (k, c) in sun_maps.iter().enumerate() {
+                let mut g = globals;
+                g.view = c.view;
+                g.proj = c.proj;
+                self.queue
+                    .write_buffer(&setup.sun[k].0, 0, bytemuck::bytes_of(&g));
+            }
+            let groups: Vec<wgpu::BindGroup> = match &models {
+                Some(_) if mode >= 1 => sun_maps
+                    .iter()
+                    .map(|c| self.sun_model_group(wowlua_casc::m2::mul(&c.proj, &c.view)))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            self.draw_sun_maps(
+                encoder,
+                w,
+                &sun_maps,
+                &detailed,
+                &placed,
+                &doodad_ranges,
+                models.as_ref(),
+                &groups,
+            );
+        }
         // The sky and its models first, in a pass of their own: the
         // world's then starts from a cleared depth.
         if let Some(m) = &sky_models {
@@ -1960,6 +2462,8 @@ struct GpuBuilding {
 struct BuildingSetup {
     opaque: wgpu::RenderPipeline,
     blended: wgpu::RenderPipeline,
+    /// The depth the sun sees (T564).
+    sun: wgpu::RenderPipeline,
     material_layout: wgpu::BindGroupLayout,
 }
 
@@ -2038,7 +2542,13 @@ impl Renderer {
             label: Some("buildings"),
             source: wgpu::ShaderSource::Wgsl(include_str!("building.wgsl").into()),
         });
-        let pipeline = |blended: bool| {
+        // (and the depth the sun sees: T564)
+        let pipeline = |blended: bool, sun: bool| {
+            let color = [Some(wgpu::ColorTargetState {
+                format: crate::FORMAT,
+                blend: blended.then_some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })];
             d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("buildings"),
                 layout: Some(&layout),
@@ -2065,24 +2575,28 @@ impl Renderer {
                     depth_write_enabled: Some(!blended),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    bias: if sun {
+                        crate::model::SUN_BIAS
+                    } else {
+                        wgpu::DepthBiasState::default()
+                    },
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs"),
+                    entry_point: Some(if sun { "fs_shadow" } else { "fs" }),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: crate::FORMAT,
-                        blend: blended.then_some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+                    targets: if sun { &[] } else { &color },
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
-        let (opaque, blended) = (pipeline(false), pipeline(true));
+        let (opaque, blended, sun) = (
+            pipeline(false, false),
+            pipeline(true, false),
+            pipeline(false, true),
+        );
         let one: [f32; 16] = [
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ];
@@ -2094,6 +2608,7 @@ impl Renderer {
         self.world.building_setup = Some(BuildingSetup {
             opaque,
             blended,
+            sun,
             material_layout,
         });
     }
@@ -2575,5 +3090,63 @@ mod tests {
     fn a_blob_is_wider_than_its_body() {
         assert_eq!(blob_radius(0.5), 1.0);
         assert_eq!(blob_radius(0.1), 0.4);
+    }
+
+    #[test]
+    fn the_sun_s_maps_reach_by_the_shadow_mode() {
+        let s = |mode| wowlua_engine::scene::Shadows {
+            mode,
+            entity_fade: 50.0,
+            ..Default::default()
+        };
+        assert_eq!(sun_reach(&s(0), 1000.0), 0.0);
+        assert_eq!(sun_reach(&s(1), 1000.0), 50.0);
+        assert_eq!(sun_reach(&s(3), 1000.0), 200.0);
+        assert_eq!(sun_reach(&s(4), 150.0), 150.0);
+    }
+
+    #[test]
+    fn the_sun_s_maps_split_the_view_and_hold_what_they_cover() {
+        let w = WorldView {
+            map: 0,
+            eye: [-8950.0, -130.0, 90.0],
+            look: [1.0, 0.0, 0.0],
+            up: [0.0, 0.0, 1.0],
+            fov: 90f64.to_radians(),
+            far: 1000.0,
+            detail: 500.0,
+            objects: 500.0,
+            cull: 18.0,
+            render_scale: 1.0,
+            units: Vec::new(),
+            time: 0.0,
+            day_time: 1440.0,
+            clutter_dist: 0.0,
+            clutter_density: 0.0,
+            shadows: Default::default(),
+        };
+        let t = (45f64).to_radians().tan();
+        let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);
+        assert_eq!(maps.len(), 3);
+        // (each farther and bigger, the last ending where they reach)
+        assert!(maps[0].end < maps[1].end && maps[1].end < maps[2].end);
+        assert!((maps[2].end - 200.0).abs() < 1e-3);
+        assert!(maps[0].texel < maps[1].texel && maps[1].texel < maps[2].texel);
+        // (a point ahead in each map's stretch is in its box, one far
+        // behind the eye in none)
+        let ahead = |d: f64| [w.eye[0] + d, w.eye[1], w.eye[2]];
+        assert!(maps[0].covers(ahead(f64::from(maps[0].end) / 2.0), 0.0));
+        assert!(maps[2].covers(ahead(150.0), 0.0));
+        assert!(!maps[0].covers(ahead(-500.0), 0.0));
+        // (the point in the map's middle lands in its middle)
+        let m = wowlua_casc::m2::mul(&maps[1].proj, &maps[1].view);
+        let p = ahead(f64::from(maps[0].end + maps[1].end) / 2.0);
+        let x = |r: usize| {
+            f64::from(m[r]) * p[0]
+                + f64::from(m[4 + r]) * p[1]
+                + f64::from(m[8 + r]) * p[2]
+                + f64::from(m[12 + r])
+        };
+        assert!(x(0).abs() < 1.0 && x(1).abs() < 1.0 && (0.0..1.0).contains(&x(2)));
     }
 }

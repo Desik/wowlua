@@ -244,3 +244,13 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
     }
     return vec4<f32>(lit, opacity);
 }
+
+// Its depth alone, as the sun sees it (its shadow maps, decision T564):
+// what an alpha keyed batch keys away casts none.
+@fragment
+fn fs_shadow(i: Out) {
+    let a = textureSample(tex1, samp, i.uv1).a;
+    if ((i.flags >> 8u) & 255u) == 1u && a < 0.502 {
+        discard;
+    }
+}
