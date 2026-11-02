@@ -271,6 +271,11 @@ A session starts at 12:00 realm time. `mock.setTimeOfDay(21, 30)` moves the
 realm's clock to 21:30 of the same day (`GetGameTime`, the calendar, and the
 3D world's light), without running the timers in between.
 
+A session starts with clear weather. `mock.setWeather("rain", 0.5)` makes it
+rain at half intensity (`"snow"` and `"sandstorm"` work the same way,
+`"clear"` ends it). `C_Weather.GetCurrentWeather` answers it, and the 3D world
+draws it.
+
 ## Snapshots and screenshots
 
 Two matchers catch a layout that changed when you didn't mean it to.
@@ -347,6 +352,7 @@ and bags, where it stands, the units around it and saved variables. Put it in
   "bags": { "0": { "slots": 16, "items": { "1": { "id": 159, "count": 5 } } } },
   "position": { "mapID": 1453, "zone": "Stormwind City", "x": 0.5, "y": 0.6 },
   "time": "21:30",
+  "weather": { "kind": "rain", "intensity": 0.5 },
   "units": [
     { "name": "Hogger", "level": 11, "reaction": "hostile", "target": true },
     { "name": "Jaina", "lastName": "Proudmoore", "player": true, "class": "MAGE", "level": 60 }
@@ -547,7 +553,9 @@ the ground under the water showing through. Props that move in the game
 (banners, lanterns, mills, birds, fountains) play their animations near
 you, with their flames, smoke and sparkles. The ground grows its grass,
 flowers and stones as far as the game's ground clutter settings say
-(`groundEffectDist`, `groundEffectDensity`).
+(`groundEffectDist`, `groundEffectDensity`). Rain, snow and sandstorms fall
+around you, as much as the game's weather density setting says
+(`weatherDensity`), and the sky turns stormy as the game's does.
 Each game version has its own light, as its client does.
 
 With the world on, units are named as in the game. A unit's name floats

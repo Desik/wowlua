@@ -257,7 +257,14 @@ fn the_sky_shows_its_models() {
     };
     let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
     let at = [3350.0, 750.0, 100.0];
-    let sky = wowlua_render::Assets::light(&mut assets, 2991, at, 1440.0).expect("the light");
+    let sky = wowlua_render::Assets::light(
+        &mut assets,
+        2991,
+        at,
+        1440.0,
+        wowlua_casc::light::Kind::Clear,
+    )
+    .expect("the light");
     eprintln!("Zephras Isle's sky models: {:?}", sky.skyboxes);
     assert!(!sky.skyboxes.is_empty());
     wowlua_engine::set_world(&mut vm, true);
@@ -568,6 +575,58 @@ mock.advanceFrames(2, 1000 / 60)",
             )
             .expect("written");
         }
+    }
+}
+
+/// The weather (decision T565): rain, snow and sand fall about the eye,
+/// as many as the intensity and `weatherDensity` say, on every client;
+/// clear, none.
+#[test]
+fn the_weather_falls() {
+    for (folder, flavor, kinds) in [
+        ("_forever_", "camelot", &["rain", "snow", "sandstorm"][..]),
+        ("_classic_era_", "vanilla", &["rain"][..]),
+    ] {
+        let Some((mut vm, casc)) = session_and_casc_of(folder, flavor) else {
+            eprintln!("no {folder} client: skipped");
+            continue;
+        };
+        let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+            eprintln!("no GPU: skipped");
+            return;
+        };
+        let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+        wowlua_engine::set_world(&mut vm, true);
+        run(
+            &mut vm,
+            "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+mock.advanceFrames(2, 1000 / 60)",
+        );
+        for kind in kinds {
+            run(
+                &mut vm,
+                &format!("mock.setWeather('{kind}', 1) mock.advanceFrames(1, 1000 / 60)"),
+            );
+            let scene = wowlua_engine::scene::build(&mut vm);
+            let image = r
+                .render_blocking(&scene, 1.0, None, &mut assets)
+                .expect("drawn");
+            eprintln!("{folder} {kind}: {} drops", r.world_weather_drops());
+            assert!(r.world_weather_drops() > 100, "{folder} {kind}");
+            if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+                let png = wowlua_render::encode_png(&image).expect("encoded");
+                std::fs::write(
+                    std::path::PathBuf::from(dir).join(format!("weather{folder}{kind}.png")),
+                    png,
+                )
+                .expect("written");
+            }
+        }
+        run(&mut vm, "mock.setWeather('clear')");
+        let scene = wowlua_engine::scene::build(&mut vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        assert_eq!(r.world_weather_drops(), 0, "{folder}");
     }
 }
 

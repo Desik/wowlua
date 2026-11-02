@@ -24,6 +24,8 @@ fn north() -> WorldView {
         clutter_dist: 0.0,
         clutter_density: 0.0,
         shadows: Default::default(),
+        weather: (0, 0.0),
+        weather_density: 2.0,
     }
 }
 

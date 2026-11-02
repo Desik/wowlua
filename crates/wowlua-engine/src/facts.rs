@@ -284,6 +284,19 @@ fn game_time(vm: &mut Vm, _c: NativeCall) -> Ret {
     ])
 }
 
+/// `C_Weather.GetCurrentWeather()`: the world's weather (decision T565),
+/// its kind (`Enum.WeatherType`) and intensity; clear: kind 0 (unverified:
+/// the game may leave the kind out).
+fn current_weather(vm: &mut Vm, _c: NativeCall) -> Ret {
+    let (kind, intensity) = engine(vm).world.weather;
+    let t = vm.new_table();
+    let (k, v) = (vm.str("type"), Value::Num(f64::from(kind)));
+    let _ = vm.heap.table_mut(t).set(k, v);
+    let (k, v) = (vm.str("intensity"), Value::Num(intensity));
+    let _ = vm.heap.table_mut(t).set(k, v);
+    Ok(vec![Value::Table(t)])
+}
+
 /// No zone: no PvP type, not a PvP subzone, no faction.
 /// `C_Sound.PlaySound(kit, …)`: played, a handle (the engine plays no
 /// sound; unverified: the handles' numbers).
@@ -962,6 +975,7 @@ pub fn behaviours() -> Vec<(&'static str, NativeFn)> {
         ("C_VoiceChat.GetTtsVoices", empty_list),
         ("GetFonts", fonts),
         ("GetGameTime", game_time),
+        ("C_Weather.GetCurrentWeather", current_weather),
         ("C_Sound.PlaySound", play_sound),
         ("GetInstanceInfo", instance_info),
         ("GetPhysicalScreenSize", physical_screen_size),

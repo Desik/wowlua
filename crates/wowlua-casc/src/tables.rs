@@ -60,6 +60,7 @@ const FILES: &[(&str, u32)] = &[
     ("LiquidMaterial", 1132538),
     ("LiquidObject", 1308058),
     ("LiquidType", 1371380),
+    ("Weather", 1343311),
     ("LiquidTypeXTexture", 2261065),
     ("Map", 1349477),
     ("ModelFileData", 1337833),
