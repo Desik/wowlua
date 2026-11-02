@@ -1624,7 +1624,9 @@ impl Renderer {
         // The tiles within the view distance of the eye: in full within
         // the detail distance, beyond it their coarse meshes (T525).
         let (cx, cy) = adt::tile_of(w.eye[0], w.eye[1]);
-        let reach = (w.far / TILE).ceil() as i32;
+        // (the coarse terrain to the horizon, T580)
+        let horizon = w.horizon.max(w.far);
+        let reach = (horizon / TILE).ceil() as i32;
         let (mut detailed, mut distant, mut near) = (Vec::new(), Vec::new(), Vec::new());
         for y in cy - reach..=cy + reach {
             for x in cx - reach..=cx + reach {
@@ -1633,7 +1635,7 @@ impl Renderer {
                 let dn = (w.eye[0] - w.eye[0].clamp(n - TILE, n)).abs();
                 let dw = (w.eye[1] - w.eye[1].clamp(wst - TILE, wst)).abs();
                 let d = dn.hypot(dw);
-                if d > w.far {
+                if d > horizon {
                     continue;
                 }
                 if d <= w.detail {
@@ -1897,7 +1899,8 @@ impl Renderer {
         let f32s = |a: [f64; 3]| [a[0] as f32, a[1] as f32, a[2] as f32];
         // The place's light at the realm's time of day (T555), else a plain
         // sky and sun.
-        let far = w.far as f32;
+        // (the view and its fog to the horizon: T580)
+        let far = w.horizon.max(w.far) as f32;
         // (the weather's storm set blended in by its intensity, as the
         // game: T565)
         let mut light = assets.light(w.map, w.eye, w.day_time, LightKind::Clear);
@@ -2016,7 +2019,7 @@ impl Renderer {
         }
         let globals = Globals {
             view: crate::model::look_at(f32s(w.eye), f32s(w.look), f32s(w.up)),
-            proj: crate::model::perspective(fov_y, aspect, NEAR, w.far as f32),
+            proj: crate::model::perspective(fov_y, aspect, NEAR, far),
             sun,
             fog: [fog[0], fog[1], fog[2], fog_start],
             eye: [w.eye[0] as f32, w.eye[1] as f32, w.eye[2] as f32, fog_end],
@@ -3542,6 +3545,7 @@ mod tests {
             filtering: 5,
             specular: true,
             terrain_mip: 0,
+            horizon: 1000.0,
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);

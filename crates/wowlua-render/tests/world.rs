@@ -766,6 +766,58 @@ mock.advanceFrames(2, 1000 / 60)",
     }
 }
 
+/// The far horizon (decision T580): the coarse terrain reaches past the
+/// view distance (`farclip`) to `horizonClip`, the mountains beyond the
+/// valley drawn where the sky was.
+#[test]
+fn the_horizon_reaches_past_the_view_distance() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    // (Goldshire's crossroads, looking south over Elwynn)
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -9464, x = 62, z = 0, instanceID = 0 }, facing = math.pi })
+C_CVar.SetCVar('farclip', '600')
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut shot = |vm: &mut Vm, settings: &str| {
+        run(vm, settings);
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn")
+    };
+    let near = shot(&mut vm, "C_CVar.SetCVar('horizonClip', '600')");
+    let far = shot(&mut vm, "C_CVar.SetCVar('horizonClip', '2400')");
+    let differ = near
+        .pixels
+        .chunks(4)
+        .zip(far.pixels.chunks(4))
+        .filter(|(x, y)| x.iter().zip(y.iter()).any(|(p, q)| p.abs_diff(*q) > 8))
+        .count();
+    eprintln!("the horizon changed {differ} pixels");
+    assert!(differ > 1000, "{differ}");
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        for (name, image) in [("near", &near), ("far", &far)] {
+            let png = wowlua_render::encode_png(image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(&dir).join(format!("horizon-{name}.png")),
+                png,
+            )
+            .expect("written");
+        }
+    }
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]

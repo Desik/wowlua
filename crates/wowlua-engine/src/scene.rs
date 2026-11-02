@@ -330,6 +330,9 @@ pub struct WorldView {
     pub filtering: u32,
     pub specular: bool,
     pub terrain_mip: u32,
+    /// How far its coarse terrain reaches (yards, `horizonClip`; decision
+    /// T580): past `far` to the horizon, at least `far`.
+    pub horizon: f64,
 }
 
 /// Multisampling's samples for an `MSAAQuality` value (decision T578): its
@@ -476,6 +479,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     let filtering = setting(vm, "textureFilteringMode", 1.0).clamp(0.0, 5.0) as u32;
     let specular = setting(vm, "specular", 1.0) != 0.0;
     let terrain_mip = setting(vm, "terrainMipLevel", 0.0).clamp(0.0, 4.0) as u32;
+    let horizon = setting(vm, "horizonClip", far).max(far);
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -508,6 +512,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         filtering,
         specular,
         terrain_mip,
+        horizon,
     })
 }
 

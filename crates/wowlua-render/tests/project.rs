@@ -31,6 +31,7 @@ fn north() -> WorldView {
         filtering: 5,
         specular: true,
         terrain_mip: 0,
+        horizon: 1000.0,
     }
 }
 
