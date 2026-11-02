@@ -643,6 +643,31 @@ impl Renderer {
         Some(self.models.files.get(&file)?.as_ref()?.model.radius)
     }
 
+    /// How far a unit's body reaches across the ground (yards, decision
+    /// T563): its body model's collision box, scaled; none before it is
+    /// read.
+    pub(crate) fn source_reach(
+        &mut self,
+        source: &scene::ModelSource,
+        assets: &mut dyn Assets,
+    ) -> Option<f32> {
+        let key = source_key(source);
+        if !self.models.displays.contains_key(&key) {
+            let d = assets.model(source);
+            self.models.displays.insert(key.clone(), d);
+        }
+        let display = self.models.displays.get(&key)?.as_ref()?;
+        let (file, scale) = (display.parts.first()?.file, display.scale);
+        if !self.loaded(file, assets) {
+            return None;
+        }
+        let [lo, hi] = self.models.files.get(&file)?.as_ref()?.model.collision;
+        let reach = [lo[0], lo[1], hi[0], hi[1]]
+            .iter()
+            .fold(0.0f32, |m, v| m.max(v.abs()));
+        Some(reach * scale)
+    }
+
     /// A model file's standing pose as one static mesh (the 3D world's
     /// doodads): its vertices (posed, with their first coordinates), its
     /// indices, and each batch's range, texture (its own, kind 0; else

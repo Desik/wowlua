@@ -11,18 +11,26 @@ fn session() -> Option<Vm> {
 
 /// [`session`], and the client's storage it reads.
 fn session_and_casc() -> Option<(Vm, std::sync::Arc<wowlua_casc::Casc>)> {
+    session_and_casc_of("_forever_", "camelot")
+}
+
+/// A session of a flavor with its installed client's data (`folder`).
+fn session_and_casc_of(
+    folder: &str,
+    flavor: &str,
+) -> Option<(Vm, std::sync::Arc<wowlua_casc::Casc>)> {
     let root = std::env::var_os("WOWLUA_WOW_PATH")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| "/Applications/World of Warcraft".into());
     let storage = wowlua_casc::FsStorage { root };
-    let product = wowlua_casc::Casc::product_of_folder(&storage, "_forever_")?;
+    let product = wowlua_casc::Casc::product_of_folder(&storage, folder)?;
     let casc = std::sync::Arc::new(wowlua_casc::Casc::open(Box::new(storage), &product).ok()?);
     let for_data = casc.clone();
     let data = std::sync::Arc::new(wowlua_render::client::CascClientData::new(Box::new(
         move || Some(for_data.clone()),
     )));
     let mut vm = Vm::wow();
-    wowlua_engine::install(&mut vm, "camelot").ok()?;
+    wowlua_engine::install(&mut vm, flavor).ok()?;
     wowlua_engine::controls::install(&mut vm, "mock");
     wowlua_engine::clientdata::set(&mut vm, data);
     Some((vm, casc))
@@ -257,7 +265,7 @@ fn the_sky_shows_its_models() {
         &mut vm,
         "mock.moveTo({ world = { y = 3350.0, x = 750.0, z = 0, instanceID = 2991 }, facing = 2 })
 mock.advanceFrames(2, 1000 / 60)
-MoveViewUpStart()
+MoveViewDownStart()
 mock.advanceFrames(30, 1000 / 60)
 MoveViewUpStop()",
     );
@@ -444,6 +452,51 @@ mock.advanceFrames(2, 1000 / 60)",
     r.render_blocking(&scene, 1.0, None, &mut assets)
         .expect("drawn");
     assert_eq!(r.world_clutter(), 0);
+}
+
+/// Shadows (decision T563): a blob under each unit on every client, and
+/// on the Classic clients the ground's baked shadows (WoW Forever's data
+/// has none).
+#[test]
+fn the_units_have_blob_shadows() {
+    for (folder, flavor) in [("_forever_", "camelot"), ("_classic_era_", "vanilla")] {
+        let Some((mut vm, casc)) = session_and_casc_of(folder, flavor) else {
+            eprintln!("no {folder} client: skipped");
+            continue;
+        };
+        let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+            eprintln!("no GPU: skipped");
+            return;
+        };
+        let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+        wowlua_engine::set_world(&mut vm, true);
+        run(
+            &mut vm,
+            "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+mock.spawnUnit({ name = 'Wolf', reaction = 'hostile', world = { y = -8940, x = -132.493, z = 0 } })
+CameraZoomOut(4)
+MoveViewDownStart()
+mock.advanceFrames(30, 1000 / 60)
+MoveViewDownStop()
+mock.advanceFrames(2, 1000 / 60)",
+        );
+        let scene = wowlua_engine::scene::build(&mut vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        let image = r
+            .render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        eprintln!("{folder}: {} blob shadows", r.world_blobs());
+        assert!(r.world_blobs() >= 1, "{folder}");
+        if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+            let png = wowlua_render::encode_png(&image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(dir).join(format!("shadows{folder}png")),
+                png,
+            )
+            .expect("written");
+        }
+    }
 }
 
 /// The world's units posed on the GPU look as posed on the CPU (decision

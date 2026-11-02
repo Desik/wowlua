@@ -49,7 +49,15 @@ struct Globals {
     river_far: [f32; 4],
     ocean: [f32; 4],
     ocean_far: [f32; 4],
+    /// The units' blob shadows (decision T563): where each stands and its
+    /// radius; `sun.w` how many.
+    blobs: [[f32; 4]; BLOBS],
 }
+
+/// The game's blob shadow (`textures/shadowblob.blp`, decision T563).
+const BLOB_FILE: u32 = 186_183;
+/// The most units with a blob shadow, the nearest the eye.
+const BLOBS: usize = 16;
 
 /// A liquid's surface point (`liquid.wgsl`).
 #[repr(C)]
@@ -111,6 +119,17 @@ const SUN: [f32; 4] = [0.35, 0.25, 0.9, 0.45];
 const FOG_START: f32 = 0.55;
 /// The nearest the camera draws (yards).
 const NEAR: f32 = 0.2;
+/// How much of the light a shadow takes with no light tables
+/// (decision T563).
+const SHADOW: f32 = 0.4;
+
+/// A blob shadow's radius for a body reaching `reach` yards across the
+/// ground (decision T563; the game's unverified): twice as wide (a human's
+/// about a yard across), at least 0.4 yards.
+fn blob_radius(reach: f32) -> f32 {
+    (reach * 2.0).max(0.4)
+}
+
 /// How far from the eye props move (yards; T558: nearer ones posed one by
 /// one, farther ones as they stand).
 const PROP_MOTION: f64 = 80.0;
@@ -161,6 +180,8 @@ struct Setup {
     globals_layout: wgpu::BindGroupLayout,
     globals: wgpu::Buffer,
     globals_group: wgpu::BindGroup,
+    /// The blob shadow's texture the globals bind (T563; white: none).
+    blob: usize,
     chunk_layout: wgpu::BindGroupLayout,
     tiled: wgpu::Sampler,
     clamped: wgpu::Sampler,
@@ -179,6 +200,8 @@ pub(crate) struct World {
     pub(crate) particles: usize,
     /// The ground's clutter placed in the last frame (T560).
     pub(crate) clutter: usize,
+    /// The units' blob shadows drawn in the last frame (T563).
+    pub(crate) blobs: usize,
     /// Every prop as it stands, none posed one by one (the frame time
     /// measurement's, `bench.rs`).
     pub(crate) still_props: bool,
@@ -234,6 +257,34 @@ fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
         count: None,
     }
+}
+
+/// The world's globals bound with the blob shadow's texture (T563).
+fn globals_group(
+    d: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    globals: &wgpu::Buffer,
+    blob: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    d.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("world globals"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: globals.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(blob),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
 }
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -317,7 +368,8 @@ fn mesh(tile: &Tile, column: i32, row: i32) -> (Vec<TVertex>, Vec<u32>, Vec<(u32
 }
 
 /// A chunk's blend texture: the second to fourth layers' blends in red,
-/// green and blue (64 × 64, from the north-west).
+/// green and blue, its baked shadow in alpha (64 × 64, from the
+/// north-west; decision T563).
 fn blend_of(c: &adt::Chunk) -> Rgba {
     let mut pixels = vec![0u8; 64 * 64 * 4];
     for (k, layer) in c.layers.iter().enumerate().skip(1).take(3) {
@@ -327,8 +379,14 @@ fn blend_of(c: &adt::Chunk) -> Rgba {
             }
         }
     }
-    for i in 0..4096 {
-        pixels[i * 4 + 3] = 255;
+    if let Some(rows) = &c.shadow {
+        for (row, bits) in rows.iter().enumerate().take(64) {
+            for col in 0..64 {
+                if bits >> col & 1 != 0 {
+                    pixels[(row * 64 + col) * 4 + 3] = 255;
+                }
+            }
+        }
     }
     Rgba {
         width: 64,
@@ -345,16 +403,21 @@ impl Renderer {
         let d = &self.device;
         let globals_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("world globals"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                // (the blob shadow's texture: T563)
+                texture_entry(1),
+                sampler_entry(2),
+            ],
         });
         let chunk_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("world chunk"),
@@ -417,14 +480,6 @@ impl Renderer {
             size: std::mem::size_of::<Globals>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        });
-        let globals_group = d.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("world globals"),
-            layout: &globals_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: globals.as_entire_binding(),
-            }],
         });
         let sampler = |address| {
             d.create_sampler(&wgpu::SamplerDescriptor {
@@ -575,6 +630,14 @@ impl Renderer {
                 resource: sky.as_entire_binding(),
             }],
         });
+        let clamped = sampler(wgpu::AddressMode::ClampToEdge);
+        let globals_group = globals_group(
+            d,
+            &globals_layout,
+            &globals,
+            &self.textures[self.white].view,
+            &clamped,
+        );
         self.world.setup = Some(Setup {
             pipeline,
             sky_pipeline,
@@ -583,10 +646,32 @@ impl Renderer {
             globals_layout,
             globals,
             globals_group,
+            blob: self.white,
             chunk_layout,
             tiled: sampler(wgpu::AddressMode::Repeat),
-            clamped: sampler(wgpu::AddressMode::ClampToEdge),
+            clamped,
         });
+    }
+
+    /// The game's blob shadow, read on first use and bound with the
+    /// globals (decision T563); whether the build has it.
+    fn world_blob(&mut self, assets: &mut dyn Assets) -> bool {
+        let t = match self.model_texture(BLOB_FILE, assets) {
+            t if t == self.missing => self.white,
+            t => t,
+        };
+        let setup = self.world.setup.as_mut().expect("the world's setup");
+        if setup.blob != t {
+            setup.globals_group = globals_group(
+                &self.device,
+                &setup.globals_layout,
+                &setup.globals,
+                &self.textures[t].view,
+                &setup.clamped,
+            );
+            setup.blob = t;
+        }
+        t != self.white
     }
 
     /// A tile on the GPU, read and built on first use.
@@ -1238,7 +1323,7 @@ impl Renderer {
         // sky and sun.
         let far = w.far as f32;
         let light = assets.light(w.map, w.eye, w.day_time);
-        let (sun, direct, ambient, fog, fog_start, fog_end, sky) = match &light {
+        let (mut sun, direct, ambient, fog, fog_start, fog_end, sky) = match &light {
             Some(l) => {
                 let d = wowlua_casc::light::light_direction(w.day_time);
                 let end = l.fog_end.min(far).max(1.0);
@@ -1281,6 +1366,35 @@ impl Renderer {
                 [0.1, 0.2, 0.3, 0.85],
             ),
         };
+        // The units' blob shadows (decision T563): the nearest the eye
+        // whose models are read, each by how wide its body is.
+        let mut blobs = [[0.0f32; 4]; BLOBS];
+        self.world.blobs = 0;
+        if self.world_blob(assets) {
+            let mut near: Vec<&wowlua_engine::scene::WorldUnit> = w.units.iter().collect();
+            let d2 = |u: &&wowlua_engine::scene::WorldUnit| {
+                (u.at[0] - w.eye[0]).powi(2) + (u.at[1] - w.eye[1]).powi(2)
+            };
+            near.sort_by(|a, b| d2(a).total_cmp(&d2(b)));
+            let mut n = 0;
+            for u in near {
+                if n == BLOBS {
+                    break;
+                }
+                if let Some(reach) = self.source_reach(&u.source, assets) {
+                    blobs[n] = [
+                        u.at[0] as f32,
+                        u.at[1] as f32,
+                        u.at[2] as f32,
+                        blob_radius(reach),
+                    ];
+                    n += 1;
+                }
+            }
+            sun[3] = n as f32;
+            self.world.blobs = n;
+        }
+        let shadow = light.as_ref().map_or(SHADOW, |l| l.shadow);
         let globals = Globals {
             view: crate::model::look_at(f32s(w.eye), f32s(w.look), f32s(w.up)),
             proj: crate::model::perspective(fov_y, aspect, NEAR, w.far as f32),
@@ -1288,11 +1402,13 @@ impl Renderer {
             fog: [fog[0], fog[1], fog[2], fog_start],
             eye: [w.eye[0] as f32, w.eye[1] as f32, w.eye[2] as f32, fog_end],
             direct: rgb(direct),
-            ambient: rgb(ambient),
+            // (and how much of the light a shadow takes: T563)
+            ambient: with(ambient, shadow),
             river: water.0,
             river_far: water.1,
             ocean: water.2,
             ocean_far: water.3,
+            blobs,
         };
         let sky_globals = {
             let l = f32s(w.look);
@@ -2393,5 +2509,46 @@ impl Renderer {
                 group,
             }),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_chunk_s_baked_shadow_is_its_blend_s_alpha() {
+        let mut shadow = vec![0u64; 64];
+        shadow[0] = 1 | 1 << 63;
+        shadow[63] = 2;
+        let chunk = adt::Chunk {
+            x: 0,
+            y: 0,
+            base: 0.0,
+            heights: vec![0.0; 145],
+            normals: vec![[0, 0, 127]; 145],
+            holes: 0,
+            area: 0,
+            layers: Vec::new(),
+            effects: [0; 64],
+            no_effect: 0,
+            shadow: Some(shadow),
+            flags: 0,
+        };
+        let blend = blend_of(&chunk);
+        let alpha = |row: usize, col: usize| blend.pixels[(row * 64 + col) * 4 + 3];
+        assert_eq!((alpha(0, 0), alpha(0, 1), alpha(0, 63)), (255, 0, 255));
+        assert_eq!((alpha(63, 0), alpha(63, 1)), (0, 255));
+        let lit = blend_of(&adt::Chunk {
+            shadow: None,
+            ..chunk
+        });
+        assert!(lit.pixels.chunks(4).all(|p| p[3] == 0));
+    }
+
+    #[test]
+    fn a_blob_is_wider_than_its_body() {
+        assert_eq!(blob_radius(0.5), 1.0);
+        assert_eq!(blob_radius(0.1), 0.4);
     }
 }
