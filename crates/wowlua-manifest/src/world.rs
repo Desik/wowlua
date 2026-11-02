@@ -129,6 +129,8 @@ pub struct WorldProfile {
     /// The realm's time of day, `"HH:MM"` (`mock.setTimeOfDay`; 12:00
     /// without it).
     pub time: Option<String>,
+    /// The weather (`mock.setWeather`; clear without it).
+    pub weather: Option<Weather>,
     /// The character's auras (`mock.player:applyAura`).
     pub auras: Option<List<Aura>>,
     /// The units around: creatures and other players (`mock.spawnUnit`).
@@ -607,6 +609,24 @@ pub struct Channel {
     pub number: Option<f64>,
     #[serde(flatten)]
     pub other: Rest,
+}
+
+/// The world's weather (decision T565).
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct Weather {
+    pub kind: WeatherKind,
+    /// 0 to 1 (1 without it).
+    pub intensity: Option<f64>,
+}
+
+/// A kind of weather.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WeatherKind {
+    Clear,
+    Rain,
+    Snow,
+    Sandstorm,
 }
 
 /// Where the character is.

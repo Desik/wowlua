@@ -135,6 +135,8 @@ pub struct Library {
     lights: Option<Option<std::sync::Arc<crate::light::Lights>>>,
     /// The build's liquids, read on first use (decision T557).
     liquids: Option<Option<std::sync::Arc<crate::liquid::Liquids>>>,
+    /// The build's weathers, read on first use (decision T565).
+    weathers: Option<Option<std::sync::Arc<crate::weather::Weathers>>>,
     /// The build's ground effects, read on first use (decision T560).
     clutter: Option<Option<std::sync::Arc<crate::clutter::Clutter>>>,
 }
@@ -228,6 +230,14 @@ impl Library {
     pub fn clutter(&mut self, casc: &Casc) -> Option<std::sync::Arc<crate::clutter::Clutter>> {
         self.clutter
             .get_or_insert_with(|| crate::clutter::Clutter::read(casc).map(std::sync::Arc::new))
+            .clone()
+    }
+
+    /// The build's weathers (decision T565), read on first use; none where
+    /// its table cannot be read.
+    pub fn weathers(&mut self, casc: &Casc) -> Option<std::sync::Arc<crate::weather::Weathers>> {
+        self.weathers
+            .get_or_insert_with(|| crate::weather::Weathers::read(casc).map(std::sync::Arc::new))
             .clone()
     }
 

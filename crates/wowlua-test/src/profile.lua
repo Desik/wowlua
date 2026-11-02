@@ -71,6 +71,9 @@ if type(profile.time) == "string" then
         mock.setTimeOfDay(tonumber(hour), tonumber(minute))
     end
 end
+if type(profile.weather) == "table" and type(profile.weather.kind) == "string" then
+    mock.setWeather(profile.weather.kind, profile.weather.intensity)
+end
 each(profile.auras, function(_, aura)
     player:applyAura(aura)
 end)

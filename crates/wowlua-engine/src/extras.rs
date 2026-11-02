@@ -3152,7 +3152,6 @@ const NOTHING: &[&str] = &[
     "C_WarbandScene.SearchWarbandSceneEntries",
     "C_WarbandScene.SetFavorite",
     "C_WarbandScene.WarbandScenesAvailable",
-    "C_Weather.GetCurrentWeather",
     "C_WorldLootObject.DoesSlotMatchInventoryType",
     "C_WorldLootObject.GetWorldLootObjectDistanceSquared",
     "C_WorldLootObject.GetWorldLootObjectInfo",

@@ -1075,6 +1075,13 @@ export function setTimeOfDay(hour: number, minute: number?)
     engine().setTimeOfDay(hour, minute)
 end
 
+--- The world's weather (`C_Weather.GetCurrentWeather`, the 3D world's
+--- rain, snow or sand and its light): `"clear"`, `"rain"`, `"snow"` or
+--- `"sandstorm"`, `intensity` 0 to 1 (1 by default). A session starts clear.
+export function setWeather(kind: "clear" | "rain" | "snow" | "sandstorm", intensity: number?)
+    engine().setWeather(kind, intensity)
+end
+
 --- One frame (`OnUpdate` with `ms` milliseconds, 1000/60 by default).
 export function nextFrame(ms: number?)
     engine().advanceFrames(1, ms)

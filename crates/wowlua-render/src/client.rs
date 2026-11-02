@@ -407,11 +407,24 @@ impl Assets for ClientAssets {
         lib.building(casc, file)
     }
 
-    fn light(&mut self, map: u32, at: [f64; 3], day_time: f64) -> Option<wowlua_casc::light::Sky> {
+    fn light(
+        &mut self,
+        map: u32,
+        at: [f64; 3],
+        day_time: f64,
+        kind: wowlua_casc::light::Kind,
+    ) -> Option<wowlua_casc::light::Sky> {
         let casc = self.casc.as_ref()?;
         let lib = library_of(casc);
         let lights = lib.lock().ok()?.lights(casc)?;
-        lights.at(map, at, day_time, wowlua_casc::light::Kind::Clear)
+        lights.at(map, at, day_time, kind)
+    }
+
+    fn weathers(&mut self) -> Option<Arc<wowlua_casc::weather::Weathers>> {
+        let casc = self.casc.as_ref()?;
+        let lib = library_of(casc);
+        let mut lib = lib.lock().ok()?;
+        lib.weathers(casc)
     }
 
     fn clutter(&mut self) -> Option<Arc<wowlua_casc::clutter::Clutter>> {

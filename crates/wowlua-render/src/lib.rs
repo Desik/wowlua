@@ -73,13 +73,19 @@ pub trait Assets {
         None
     }
     /// The light at a place of a map (north, west, up) at a time of day in
-    /// half-minutes (decision T555); none for a plain sky.
+    /// half-minutes (decision T555), its clear or its storm set (the
+    /// weather's, T565); none for a plain sky.
     fn light(
         &mut self,
         _map: u32,
         _at: [f64; 3],
         _day_time: f64,
+        _kind: wowlua_casc::light::Kind,
     ) -> Option<wowlua_casc::light::Sky> {
+        None
+    }
+    /// The build's weathers (decision T565).
+    fn weathers(&mut self) -> Option<std::sync::Arc<wowlua_casc::weather::Weathers>> {
         None
     }
     /// The build's liquids (decision T557).
@@ -378,6 +384,12 @@ impl Renderer {
     /// T564).
     pub fn world_sun_maps(&self) -> usize {
         self.world.sun_maps
+    }
+
+    /// The weather's drops (rain, snowflakes, sand) drawn in the 3D
+    /// world's last frame (decision T565).
+    pub fn world_weather_drops(&self) -> u32 {
+        self.world.weather_drops
     }
 
     /// A renderer on the first adapter there is (a software one when there
