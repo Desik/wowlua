@@ -343,6 +343,48 @@ CameraZoomOut(20)",
     }
 }
 
+/// The props that move (decision T558): Northshire's bird and fountain
+/// move as they stand, its trees do not (in the data); at the abbey the
+/// world poses the moving ones near it one by one.
+#[test]
+fn the_props_move() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let moves = |file: u32| {
+        casc.file_by_id(file)
+            .and_then(|b| wowlua_casc::m2::Model::parse(&b))
+            .map(|m| (m.name.clone(), m.moves()))
+    };
+    assert_eq!(moves(190719), Some(("Bird01".into(), true)));
+    assert_eq!(moves(199949), Some(("FountainParticles".into(), true)));
+    assert_eq!(moves(189932), Some(("ElwynnTreeMid01".into(), false)));
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let scene = wowlua_engine::scene::build(&mut vm);
+    let start = std::time::Instant::now();
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    r.render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    eprintln!(
+        "{} props posed; two frames took {:?}",
+        r.moving_props(),
+        start.elapsed()
+    );
+    assert!(r.moving_props() > 0);
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]
