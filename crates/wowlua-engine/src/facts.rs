@@ -1080,10 +1080,17 @@ mod tests {
             .map(|(k, v)| (k.parse().unwrap(), v))
             .collect();
         theirs.sort_by_key(|(k, _)| *k);
-        let ours = color_entries("camelot").unwrap();
+        // A color 70707's table added (until the battery is recorded again).
+        let added = [Rec::Str("EMPTY_BAG_SLOT_EFFECT_COLOR".into())];
+        let ours: Vec<Rec> = color_entries("camelot")
+            .unwrap()
+            .into_iter()
+            .filter(|c| !matches!(c, Rec::Table(f) if added.contains(&f[0].1)))
+            .collect();
         assert_eq!(ours.len(), theirs.len());
-        // Its alpha: 0 in 70658's table, 1 as recorded on 70425 (the build's
-        // change or a hotfix: tests/ingame/PROBES.md, "The Camelot update").
+        // Its alpha: 0 in 70658's and 70707's table, 1 as recorded on 70425
+        // (the build's change or a hotfix: tests/ingame/PROBES.md, "The
+        // Camelot update").
         let changed = Rec::Str("COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR".into());
         let mut differ = Vec::new();
         for (mine, (i, recorded)) in ours.iter().zip(&theirs) {

@@ -248,11 +248,11 @@ fn client_globals() -> &'static std::collections::HashSet<String> {
     })
 }
 
-/// What the build the declarations come from (the installed client
-/// 1.60.1.70658, decision T553) changed since the battery was recorded on
-/// 70425: its documentation's enums, and one color's alpha in its table
-/// (`COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR`, T554), until the battery is
-/// recorded again.
+/// What the builds the declarations come from (the installed client,
+/// decision T553: 1.60.1.70658, then 70707) changed since the battery was
+/// recorded on 70425: their documentation's enums and constants, and one
+/// color's alpha in the table (`COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR`,
+/// T554), until the battery is recorded again.
 const NEWER_BUILD: &[&str] = &[
     "probe.loadCalls.C_UIColor.GetColors",
     "probe.enums.ForeverExperiencePreset.Modern",
@@ -260,6 +260,15 @@ const NEWER_BUILD: &[&str] = &[
     "probe.enums.NamePartType.Combined",
     "probe.enums.NamePartTypeMeta.MaxValue",
     "probe.enums.NamePartTypeMeta.NumValues",
+    // 70707: a purchase result added (`ProxyNoMixedAlliance`), and the
+    // level constants documented as `LevelConstsExposed_Camelot`, the
+    // resurrection sickness's from level 11 (the recorded
+    // `LevelConstsExposed` kept, decision T566).
+    "probe.enums.VasTransactionPurchaseResultMeta.NumValues",
+    "probe.hidden.Enum.VasTransactionPurchaseResultMeta.NumValues",
+    "probe.constants.LevelConstsExposed_Camelot.MIN_ACHIEVEMENT_LEVEL",
+    "probe.constants.LevelConstsExposed_Camelot.MIN_RES_SICKNESS_LEVEL",
+    "probe.constants.LevelConstsExposed_Camelot.MIN_TALENT_LEVEL",
 ];
 
 /// Results that depend on the character, the moment, the session or

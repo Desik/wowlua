@@ -1806,10 +1806,22 @@ pub(crate) static LAYOUTS: &[(&str, Layouts)] = &[
     ),
     (
         "SpellDuration",
-        &[(
-            0xA931BD2B,
-            &["Duration~4", "MaxDuration~4", "DurationPerResource~4"],
-        )],
+        &[
+            (
+                0xA931BD2B,
+                &["Duration~4", "MaxDuration~4", "DurationPerResource~4"],
+            ),
+            // Forever 70707's
+            (
+                0x4FDF0951,
+                &[
+                    "Duration~4",
+                    "DurationPerLevel~4",
+                    "MaxDuration~4",
+                    "DurationPerResource~4",
+                ],
+            ),
+        ],
     ),
     (
         "SpellRadius",

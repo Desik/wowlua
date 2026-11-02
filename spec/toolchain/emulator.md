@@ -364,7 +364,11 @@ The WoW API the VM's code calls, per flavor.
   than an installed client, so it only adds), and the tables the flavor's
   own `EnvironmentCleanup.lua` removes are secure, as camelot's recorded
   ones (`data/<flavor>-enums.txt`, `data/<flavor>-globals.txt`; decision
-  T554). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
+  T554). A `Constants` table the recording has that a newer build's
+  documentation names otherwise, while that build's code still reads the
+  recorded name, keeps its recorded values until the battery is recorded
+  again (camelot 70707's `LevelConstsExposed`, documented as
+  `LevelConstsExposed_Camelot`; decision T566). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
   table, by name, each byte times 1/255 in floats as the client's
   (`data/<flavor>-colors.txt`, which `cargo xtask types gen` writes).
 - **Natives.** The API functions are natives of the VM, as the client's are C
@@ -581,7 +585,10 @@ takes the flavor's `Interface` folder and its global strings:
 - **Lua files** run as secure code with the addon's name and table, also
   when an addon's code loads a load-on-demand one (`C_AddOns.LoadAddOn`)
   while the addon loads: Blizzard's files and scripts compile as Blizzard's
-  code whoever runs when they load, and keep their own file names.
+  code whoever runs when they load, and keep their own file names. A file's
+  result is its module: `import(".Dir.Name")` gives the result of
+  `Dir/Name.lua` next to the importing file, `import("AddOn.Dir.Name")` that
+  of `Dir/Name.lua` in the addon `AddOn`'s folder (decision T566).
 - **XML** builds widgets as the client does: virtual elements are templates
   (for `inherits` and `CreateFrame`), intrinsic ones frame types; an
   element's templates apply first, then its attributes, mixins, `parentKey`

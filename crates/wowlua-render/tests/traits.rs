@@ -4,8 +4,10 @@
 //! currency worked out again from the tables and the recorded ranks, on the
 //! WoW installation of this machine; skipped where there is none.
 
-/// What the build changed since the recording (1.60.1.70425): the mage
-/// tree's nodes moved, gained ranks or went.
+/// What the builds changed since the recording (1.60.1.70425): the mage
+/// tree's nodes moved, gained ranks or went; on 70707 more of them moved,
+/// swapped their ranks and spells, or went (until the trees are recorded
+/// again: tests/ingame/PROBES.md, "The Camelot update").
 const CHANGED: &[&str] = &[
     "GetTreeNodes(1112)",
     ", 105771)",
@@ -13,6 +15,17 @@ const CHANGED: &[&str] = &[
     ", 105773)",
     ", 105778)",
     ", 130507)",
+    // 70707
+    "GetDefinitionInfo(135332)",
+    "GetDefinitionInfo(135339)",
+    ", 130513)",
+    ", 130525)",
+    ", 105784)",
+    ", 105796)",
+    ", 105797)",
+    ", 105802)",
+    ", 105813)",
+    ", 105814)",
 ];
 
 #[test]

@@ -445,6 +445,53 @@ end
 /// Blizzard's code, as when the addon loads one later: its functions stay
 /// secure and its files keep their names (spec §17.7: Blizzard's Lua files
 /// run as secure code with their addon's name).
+/// `import` finds a module next to the importing file (`.Name`) or in
+/// another addon's folder (`AddOn.Name`, decision T566).
+#[test]
+fn modules_are_imported_by_relative_and_addon_names() {
+    let interface = tree(
+        "imports",
+        &[
+            (
+                "AddOns/Blizzard_Helpers/Blizzard_Helpers.toc",
+                "Helper.lua\nSub/Inner.lua\nUser.lua\n",
+            ),
+            (
+                "AddOns/Blizzard_Helpers/Helper.lua",
+                "return { name = 'helper' }\n",
+            ),
+            (
+                "AddOns/Blizzard_Helpers/Sub/Inner.lua",
+                "return { name = 'inner' }\n",
+            ),
+            (
+                "AddOns/Blizzard_Helpers/User.lua",
+                "RelativeName = import('.Helper').name .. import('.Sub.Inner').name\n",
+            ),
+            (
+                "AddOns/Blizzard_Other/Blizzard_Other.toc",
+                "## Dep: Blizzard_Helpers\nOther.lua\n",
+            ),
+            (
+                "AddOns/Blizzard_Other/Other.lua",
+                "AbsoluteName = import('Blizzard_Helpers.Helper').name\n\
+                 .. import('Blizzard_Helpers.Sub.Inner').name\n\
+                 Missing = select(2, pcall(import, 'Blizzard_Helpers.Nothing'))\n",
+            ),
+        ],
+    );
+    let mut vm = vm("camelot");
+    let report = wowlua_engine::ui::load(&mut vm, &interface, None);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let r = run(&mut vm, "return RelativeName, AbsoluteName, Missing");
+    assert_eq!(r[..2], ["helperinner", "helperinner"]);
+    assert!(
+        r[2].ends_with("import: no module 'Blizzard_Helpers.Nothing'"),
+        "{}",
+        r[2]
+    );
+}
+
 #[test]
 fn blizzard_addons_loaded_while_an_addon_loads() {
     let interface = tree(
