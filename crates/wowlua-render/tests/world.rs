@@ -336,12 +336,12 @@ CameraZoomOut(20)",
             n + 15.0
         ),
     );
-    // (WoW Forever's PBR river: drawn with its own colors and water's frames)
+    // (WoW Forever's PBR river: its own colors and foam masks, T583)
     let kinds = wowlua_render::Assets::liquids(&mut assets).expect("the liquids");
     let kind = kinds.resolve(l).expect("its type").kind;
     assert_eq!(kind.look, wowlua_casc::liquid::Look::Pbr, "{}", kind.name);
     assert!(kind.colors.len() >= 2);
-    assert!(kinds.kind(1).is_some_and(|k| !k.frames.is_empty()));
+    assert_eq!(kind.frames.len(), 6, "{}: {:?}", kind.name, kind.frames);
     let scene = wowlua_engine::scene::build(&mut vm);
     r.render_blocking(&scene, 1.0, None, &mut assets)
         .expect("drawn");
@@ -352,6 +352,27 @@ CameraZoomOut(20)",
         let png = wowlua_render::encode_png(&image).expect("encoded");
         std::fs::write(
             std::path::PathBuf::from(dir).join("northshire-water.png"),
+            png,
+        )
+        .expect("written");
+    }
+    // (and from above, looking down on it)
+    run(
+        &mut vm,
+        "MoveViewDownStart()
+mock.advanceFrames(20, 1000 / 60)
+MoveViewDownStop()
+CameraZoomOut(10)
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let scene = wowlua_engine::scene::build(&mut vm);
+    let above = r
+        .render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let png = wowlua_render::encode_png(&above).expect("encoded");
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("northshire-water-above.png"),
             png,
         )
         .expect("written");

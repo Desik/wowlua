@@ -1205,3 +1205,26 @@ cast Renew on you, or cast it on a party member with a priest.
    on the target visible?
 
    wowlua: its model's first animation, at most 3 seconds. Seen: (to do)
+
+## WoW Forever's water (decision T583)
+
+On WoW Forever: from its launch on 5 November 2026 (no login before).
+Look, do not run anything: stand on the bank of the river south of
+Northshire Abbey on a clear day at noon, then take a screenshot looking down
+at the water and one looking along it.
+
+1. **Its color**: is the deep middle a darker teal than the shallows by the
+   bank, or the other way round?
+
+   wowlua: the darker of its type's two colors deep. Seen: (to do)
+2. **Its bed**: does the riverbed show through the shallows?
+
+   wowlua: yes, less as it deepens (to 5 yards). Seen: (to do)
+3. **Its foam**: is there foam along the banks, and on the open water?
+
+   wowlua: a line of foam where it is under a yard deep, a little on the
+   waves' crests. Seen: (to do)
+4. **Its waves**: about how big are its ripples (a hand, a foot, a yard
+   across), and which way do they drift?
+
+   wowlua: about a foot, drifting slowly each its own way. Seen: (to do)

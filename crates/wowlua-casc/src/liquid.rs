@@ -15,8 +15,8 @@ use crate::tables::Table;
 pub enum Look {
     Water,
     Glowing,
-    /// WoW Forever's PBR water (material 130): its own shader, approximated
-    /// as water until it is (decision T557, later).
+    /// WoW Forever's PBR water (material 130): its own look (decision
+    /// T583), from its foam masks.
     Pbr,
 }
 
@@ -29,7 +29,9 @@ pub struct Kind {
     pub look: Look,
     /// The vertex format its material stores (`LiquidMaterial.LVF`).
     pub format: u32,
-    /// The surface's animation frames (file IDs).
+    /// The surface's animation frames (file IDs); a PBR water's foam masks
+    /// in their order (decision T583: three churning, the shore's two, the
+    /// river's).
     pub frames: Vec<u32>,
     /// The sea (type 2): flat, its depth alone.
     pub ocean: bool,
@@ -82,7 +84,13 @@ impl Liquids {
                 })
                 .unwrap_or_default();
             frames.sort();
-            let mut frames: Vec<u32> = frames.into_iter().map(|f| f.1).take(count.max(1)).collect();
+            // (a PBR water's every mask, T583)
+            let keep = if material == 130 {
+                frames.len()
+            } else {
+                count.max(1)
+            };
+            let mut frames: Vec<u32> = frames.into_iter().map(|f| f.1).take(keep).collect();
             frames.retain(|f| *f != 0);
             if frames.is_empty()
                 && let Some(pattern) = r.string("Texture").filter(|s| s.contains("%d"))
@@ -122,7 +130,9 @@ impl Liquids {
                 out.objects.insert(
                     r.id(),
                     (
-                        r.int("LiquidTypeID"),
+                        // (16 bits: WoW Forever's has others above them,
+                        // 0x3D4C0000 over every row; T583)
+                        r.int("LiquidTypeID") & 0xFFFF,
                         r.float("FlowDirection"),
                         r.float("FlowSpeed"),
                     ),

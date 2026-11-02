@@ -553,7 +553,8 @@ fog come from your installation's light tables at the realm's time of day,
 so a profile's `"time": "21:30"` or `mock.setTimeOfDay(21, 30)` shows the
 evening. The zone's sky models (clouds, stars, a storm) show behind it,
 and its lakes, rivers, sea and lava are drawn with their animated surfaces,
-the ground under the water showing through. Props that move in the game
+the ground under the water showing through. WoW Forever's water ripples,
+reflects the sky and foams along its shores, as the game's newer water does. Props that move in the game
 (banners, lanterns, mills, birds, fountains) play their animations near
 you, with their flames, smoke and sparkles. The ground grows its grass,
 flowers and stones as far as the game's ground clutter settings say

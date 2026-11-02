@@ -62,8 +62,12 @@ struct Globals {
     shadow: [f32; 4],
     look: [f32; 4],
     /// The terrain's shine (decision T579): x on (`specular`), y its
-    /// exponent.
+    /// exponent; z the clock (seconds, T583).
     terrain: [f32; 4],
+    /// The sky's top and band colors, for the PBR water's reflection
+    /// (decision T583).
+    sky_top: [f32; 4],
+    sky_band: [f32; 4],
 }
 
 /// The terrain's shine's exponent (decision T579; unverified).
@@ -81,12 +85,20 @@ struct LVertex {
     pos: [f32; 3],
     uv: [f32; 2],
     depth: f32,
+    /// Yards of water over the ground (decision T583; large where none is
+    /// known).
+    over: f32,
+    /// Its flow: its way (north, west) by its speed (T583).
+    flow: [f32; 2],
 }
 
 /// A liquid type's part of a tile's liquid mesh: its frames (textures),
 /// whether it glows, whether it is the sea, its indices.
 struct LiquidDraw {
     frames: Vec<usize>,
+    /// A PBR water's masks bound (decision T583), drawn by its own
+    /// pipeline.
+    pbr: Option<wgpu::BindGroup>,
     /// How it is drawn: glowing, the sea, its own colors (`liquid.wgsl`).
     how: wgpu::BindGroup,
     start: u32,
@@ -101,6 +113,9 @@ struct GpuLiquid {
 
 struct LiquidSetup {
     pipeline: wgpu::RenderPipeline,
+    /// WoW Forever's PBR water's (decision T583), and its masks' layout.
+    pbr_pipeline: wgpu::RenderPipeline,
+    pbr_layout: wgpu::BindGroupLayout,
     frame_layout: wgpu::BindGroupLayout,
     how_layout: wgpu::BindGroupLayout,
     /// Each frame's texture (by its index) bound.
@@ -108,8 +123,31 @@ struct LiquidSetup {
 }
 
 /// A liquid type's part of a tile's mesh: its frames (files), glowing, the
-/// sea, its own colors (near, far), its indices' start and count.
-type LiquidPart = (Vec<u32>, bool, bool, Option<([f32; 3], [f32; 3])>, u32, u32);
+/// sea, a PBR water (T583), its own colors (near, far), its indices' start
+/// and count.
+type LiquidPart = (
+    Vec<u32>,
+    bool,
+    bool,
+    bool,
+    Option<([f32; 3], [f32; 3])>,
+    u32,
+    u32,
+);
+
+/// A PBR water's masks it draws with (decision T583), by their place in its
+/// list: two churning (the first, the third), the shore's two, the
+/// river's.
+const PBR_MASKS: [usize; 5] = [0, 2, 3, 4, 5];
+
+/// A liquid's surface point's attributes (`liquid.wgsl`, `pbr_water.wgsl`).
+const LIQUID_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    0 => Float32x3,
+    1 => Float32x2,
+    2 => Float32,
+    3 => Float32,
+    4 => Float32x2,
+];
 
 /// The liquids' animation: frames a second (unverified: a 30-frame
 /// cycle in two seconds).
@@ -1199,7 +1237,7 @@ impl Renderer {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<LVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32],
+                    attributes: &LIQUID_ATTRIBUTES,
                 })],
             },
             primitive: wgpu::PrimitiveState::default(),
@@ -1224,8 +1262,65 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        // WoW Forever's PBR water (T583): its masks, its own shader.
+        let pbr_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world pbr water masks"),
+            entries: &[
+                texture_entry(0),
+                texture_entry(1),
+                texture_entry(2),
+                texture_entry(3),
+                texture_entry(4),
+                sampler_entry(5),
+            ],
+        });
+        let pbr_shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("world pbr water"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("pbr_water.wgsl").into()),
+        });
+        let pbr_pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("world pbr water"),
+            layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("world pbr water"),
+                bind_group_layouts: &[Some(&globals_layout), Some(&pbr_layout), Some(&how_layout)],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState {
+                module: &pbr_shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<LVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &LIQUID_ATTRIBUTES,
+                })],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: msaa(samples),
+            fragment: Some(wgpu::FragmentState {
+                module: &pbr_shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         self.world.liquid_setup = Some(LiquidSetup {
             pipeline: liquid_pipeline,
+            pbr_pipeline,
+            pbr_layout,
             frame_layout,
             how_layout,
             frames: HashMap::new(),
@@ -1470,12 +1565,34 @@ impl Renderer {
             return None;
         }
         let mut draws = Vec::with_capacity(parts.len());
-        for (files, glowing, ocean, colors, start, count) in parts {
+        for (files, glowing, ocean, pbr, colors, start, count) in parts {
             let frames: Vec<usize> = files
                 .iter()
                 .map(|&f| self.model_texture(f, assets))
                 .collect();
             let lsetup = self.world.liquid_setup.as_ref()?;
+            // (a PBR water's masks: each by its place, else its last; T583)
+            let pbr = (pbr && !frames.is_empty()).then(|| {
+                let setup = self.world.setup.as_ref().expect("the world's setup");
+                let mask = |k: usize| &self.textures[frames[k.min(frames.len() - 1)]].view;
+                let mut entries: Vec<wgpu::BindGroupEntry> = PBR_MASKS
+                    .iter()
+                    .enumerate()
+                    .map(|(b, &k)| wgpu::BindGroupEntry {
+                        binding: b as u32,
+                        resource: wgpu::BindingResource::TextureView(mask(k)),
+                    })
+                    .collect();
+                entries.push(wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&setup.tiled),
+                });
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("world pbr water masks"),
+                    layout: &lsetup.pbr_layout,
+                    entries: &entries,
+                })
+            });
             let flag = |b: bool| if b { 1.0 } else { 0.0 };
             let (near, far) = colors.unwrap_or_default();
             let v: [f32; 12] = [
@@ -1509,6 +1626,7 @@ impl Renderer {
             });
             draws.push(LiquidDraw {
                 frames,
+                pbr,
                 how,
                 start,
                 count,
@@ -2275,7 +2393,15 @@ impl Renderer {
                 let l = f32s(w.look);
                 [l[0], l[1], l[2], 0.0]
             },
-            terrain: [f32::from(u8::from(w.specular)), TERRAIN_SHINE, 0.0, 0.0],
+            terrain: [
+                f32::from(u8::from(w.specular)),
+                TERRAIN_SHINE,
+                // (the clock, for the PBR water's waves: T583)
+                (w.time % 3600.0) as f32,
+                0.0,
+            ],
+            sky_top: rgb(sky[0]),
+            sky_band: rgb(sky[2]),
         };
         // The weather (T565): what falls, how much, lit by the light.
         let drops = if self.eye_indoors(&placed, w.eye) {
@@ -2747,6 +2873,15 @@ impl Renderer {
                 pass.set_vertex_buffer(0, l.vertices.slice(..));
                 pass.set_index_buffer(l.indices.slice(..), wgpu::IndexFormat::Uint32);
                 for d in &l.draws {
+                    // (a PBR water by its own pipeline, T583)
+                    if let Some(pbr) = &d.pbr {
+                        pass.set_pipeline(&lsetup.pbr_pipeline);
+                        pass.set_bind_group(1, pbr, &[]);
+                        pass.set_bind_group(2, &d.how, &[]);
+                        pass.draw_indexed(d.start..d.start + d.count, 0, 0..1);
+                        pass.set_pipeline(&lsetup.pipeline);
+                        continue;
+                    }
                     let Some(group) = d
                         .frames
                         .get(tick % d.frames.len().max(1))
@@ -2995,7 +3130,8 @@ impl Renderer {
 /// its chunk's squares (its heights, or its level where it stores none),
 /// its type's frames, the squares it has; by type. Its texture repeats
 /// every two of the grid's squares (unverified). WoW Forever's PBR water
-/// is drawn as its water until its own look is (T557).
+/// takes its own masks, and each point how deep it is over the ground and
+/// its flow (T583).
 #[allow(clippy::type_complexity)]
 fn liquid_mesh(
     tile: &Tile,
@@ -3013,12 +3149,12 @@ fn liquid_mesh(
         };
         let (frames, glowing) = match r.kind.look {
             Look::Glowing => (r.kind.frames.clone(), true),
-            Look::Pbr => (
-                kinds.kind(1).map_or_else(Vec::new, |k| k.frames.clone()),
-                false,
-            ),
-            Look::Water => (r.kind.frames.clone(), false),
+            Look::Pbr | Look::Water => (r.kind.frames.clone(), false),
         };
+        let pbr = r.kind.look == Look::Pbr;
+        // (its flow: radians from north toward west, unverified; T583)
+        let (dir, speed) = r.flow;
+        let flow = [dir.cos() * speed, dir.sin() * speed];
         if frames.is_empty() {
             continue;
         }
@@ -3036,10 +3172,16 @@ fn liquid_mesh(
                     .copied()
                     .filter(|v| v.is_finite())
                     .unwrap_or(l.min);
+                // (how deep over the ground, T583)
+                let over = tile
+                    .height_at(north - pn, west - pw)
+                    .map_or(99.0, |ground| (f64::from(height) - ground).max(0.0) as f32);
                 verts.push(LVertex {
                     pos: [pn as f32, pw as f32, height],
                     uv: [(-pw / (UNIT * 2.0)) as f32, (-pn / (UNIT * 2.0)) as f32],
                     depth: f32::from(depths.get(k).copied().unwrap_or(255)) / 255.0,
+                    over,
+                    flow,
                 });
             }
         }
@@ -3053,7 +3195,7 @@ fn liquid_mesh(
                 };
                 by_kind.push((
                     r.kind.id,
-                    (frames, glowing, r.kind.ocean, colors, 0, 0),
+                    (frames, glowing, r.kind.ocean, pbr, colors, 0, 0),
                     Vec::new(),
                 ));
                 by_kind.len() - 1
@@ -3074,7 +3216,7 @@ fn liquid_mesh(
     }
     let mut indices = Vec::new();
     let mut parts = Vec::new();
-    for (_, (frames, glowing, ocean, colors, _, _), list) in by_kind {
+    for (_, (frames, glowing, ocean, pbr, colors, _, _), list) in by_kind {
         if list.is_empty() {
             continue;
         }
@@ -3084,6 +3226,7 @@ fn liquid_mesh(
             frames,
             glowing,
             ocean,
+            pbr,
             colors,
             start,
             indices.len() as u32 - start,
