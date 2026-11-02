@@ -427,6 +427,13 @@ impl Assets for ClientAssets {
         lib.weathers(casc)
     }
 
+    fn spell_visuals(&mut self) -> Option<Arc<wowlua_casc::spellvisual::SpellVisuals>> {
+        let casc = self.casc.as_ref()?;
+        let lib = library_of(casc);
+        let mut lib = lib.lock().ok()?;
+        lib.spell_visuals(casc)
+    }
+
     fn clutter(&mut self) -> Option<Arc<wowlua_casc::clutter::Clutter>> {
         let casc = self.casc.as_ref()?;
         let lib = library_of(casc);

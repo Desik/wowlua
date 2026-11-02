@@ -562,6 +562,12 @@ around you, as much as the game's weather density setting says
 (`weatherDensity`), and the sky turns stormy as the game's does.
 Each game version has its own light, as its client does.
 
+Spells show as they do in the game, from your installation's spell visuals.
+While a unit casts (`unit:castSpell(133, { castTime = 2.5 })`), its hands
+glow. When the spell goes off, its missile flies to the target and bursts on
+it, and an aura (`unit:applyAura({ spellId = 139 })`) shows its glow on the
+unit while it is up. Each game version shows its own look of a spell.
+
 With the world on, units are named as in the game. A unit's name floats
 over it in its reaction's color, with an NPC's title under it
 (`"title": "Cloth Armor Merchant"` in a profile's unit). The game's name

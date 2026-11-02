@@ -62,6 +62,7 @@ fn main() {
                 variation: 0,
                 placement: None,
                 phase: 0,
+                effects: Vec::new(),
             }],
             camera: ModelCamera::Frame {
                 portrait_zoom: arg(4, 0.0),

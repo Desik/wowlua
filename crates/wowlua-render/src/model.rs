@@ -133,6 +133,10 @@ impl Rng {
     }
 }
 
+/// How long a spell's model played once shows at most (ms; decision T582,
+/// unverified).
+pub(crate) const EFFECT_ONCE_MS: u32 = 3000;
+
 /// The body's pose and attachment points, for the parts on it.
 pub(crate) struct Body {
     points: HashMap<u32, Mat4>,
@@ -912,6 +916,7 @@ impl Renderer {
                 variation: 0,
                 placement: None,
                 phase: 0,
+                effects: Vec::new(),
             }],
             camera: ModelCamera::Frame {
                 portrait_zoom: 1.0,
@@ -1047,6 +1052,71 @@ impl Renderer {
                 );
                 self.models.files.insert(part.file, Some(l));
             }
+            // The spells' models on it (decision T582): at the body's
+            // attachment points, each on its own clock.
+            for fx in &actor.effects {
+                let Some(body) = body_points.as_ref() else {
+                    break;
+                };
+                if !self.loaded(fx.model, assets) {
+                    continue;
+                }
+                let (seq, duration) = {
+                    let Some(Some(l)) = self.models.files.get(&fx.model) else {
+                        continue;
+                    };
+                    let seq = l
+                        .model
+                        .sequence(0)
+                        .or((!l.model.sequences.is_empty()).then_some(0));
+                    (seq, seq.map_or(0, |s| l.model.sequences[s].duration))
+                };
+                let shown = match duration {
+                    0 => EFFECT_ONCE_MS,
+                    d => d.min(EFFECT_ONCE_MS),
+                };
+                if fx.once && fx.ms >= shown {
+                    continue;
+                }
+                if let Some(s) = seq {
+                    self.ensure_anim(fx.model, s, assets);
+                }
+                let at = fx
+                    .attachment
+                    .and_then(|a| body.points.get(&a))
+                    .map_or(world, |a| m2::mul(&world, a));
+                let mut local = m2::translation(fx.offset);
+                local = m2::mul(
+                    &local,
+                    &orientation(fx.turn[0], fx.turn[1], fx.turn[2], false),
+                );
+                local = m2::mul(&local, &m2::scaling([fx.scale; 3]));
+                let fx_world = m2::mul(&at, &local);
+                let Some(Some(l)) = self.models.files.remove(&fx.model) else {
+                    continue;
+                };
+                let part = wowlua_casc::display::Part::with_file(fx.model);
+                self.draw_part(
+                    &l,
+                    &part,
+                    actor,
+                    &display,
+                    camera,
+                    fx_world,
+                    seq,
+                    fx.ms,
+                    &mut body_points,
+                    &mut portrait,
+                    &mut own_camera,
+                    &mut verts,
+                    &mut indices,
+                    &mut draws,
+                    &mut lo,
+                    &mut hi,
+                    assets,
+                );
+                self.models.files.insert(fx.model, Some(l));
+            }
         }
         Posed {
             verts,
@@ -1160,6 +1230,56 @@ impl Renderer {
         }
     }
 
+    /// Where an actor's attachment point is (decision T582): its first
+    /// model posed in its animation at `ms`; none where it lacks the point.
+    pub(crate) fn actor_point(
+        &mut self,
+        actor: &scene::Actor,
+        attachment: u32,
+        ms: u32,
+        assets: &mut dyn Assets,
+    ) -> Option<[f32; 3]> {
+        let key = source_key(&actor.source);
+        if !self.models.displays.contains_key(&key) {
+            let d = assets.model(&actor.source);
+            self.models.displays.insert(key.clone(), d);
+        }
+        let display = self.models.displays.get(&key).cloned().flatten()?;
+        let file = display.parts.first()?.file;
+        if !self.loaded(file, assets) {
+            return None;
+        }
+        let seq = {
+            let Some(Some(l)) = self.models.files.get(&file) else {
+                return None;
+            };
+            l.model
+                .sequence(actor.animation as u16)
+                .or_else(|| l.model.sequence(0))
+        };
+        if let Some(s) = seq {
+            self.ensure_anim(file, s, assets);
+        }
+        let Some(Some(l)) = self.models.files.get(&file) else {
+            return None;
+        };
+        let m = &l.model;
+        let time = seq.map_or(0, |s| {
+            let d = m.sequences[s].duration;
+            if d > 0 { ms % d } else { 0 }
+        });
+        let pose = m.pose_facing(seq, time, None);
+        let point = m.attachment(attachment, &pose)?;
+        let scale = actor.scale * display.scale;
+        let mut world = m2::translation(actor.position);
+        world = m2::mul(
+            &world,
+            &orientation(actor.yaw, actor.pitch, actor.roll, actor.fixed_axes),
+        );
+        world = m2::mul(&world, &m2::scaling([scale; 3]));
+        Some(m2::transform(&m2::mul(&world, &point), [0.0; 3]))
+    }
+
     /// The 3D world's units as their models (decision T526): posed for the
     /// world's camera (`view`, `proj`), lit by `light` (its direction,
     /// ambient and diffuse), with their particles (decision T559), ready to
@@ -1216,13 +1336,14 @@ impl Renderer {
             };
             let moment = ms.checked_div(period).unwrap_or(ms);
             let key = format!(
-                "{}|{:?}|{}|{}|{}|{}",
+                "{}|{:?}|{}|{}|{}|{}|{:?}",
                 source_key(&actor.source),
                 actor.position.map(f32::to_bits),
                 actor.yaw.to_bits(),
                 actor.animation,
                 actor.scale.to_bits(),
-                period
+                period,
+                actor.effects
             );
             let one = match kept.remove(&key) {
                 Some((at, one)) if period != 0 && at == moment => one,

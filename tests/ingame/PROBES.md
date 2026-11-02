@@ -1177,3 +1177,31 @@ launch on 5 November 2026 (no login before).
    wowlua: `crates/wowlua-engine/data/<flavor>-graphics.txt`; camelot's has
    only the shadow levels seen in Config.wtf files (unverified), the
    Classic clients' none. Recorded: (to do)
+
+## Spells in the world (decision T582)
+
+On Classic Era now (WoW Forever from its launch on 5 November 2026). Look,
+do not run anything: with a mage, stand ten yards from a training dummy or
+a weak creature, target it and cast Fireball; then have a priest friend
+cast Renew on you, or cast it on a party member with a priest.
+
+1. **Fireball's cast**: while the bar fills, do both hands glow?
+
+   wowlua: both (the precast kit's models at points 21 and 22). Seen: (to do)
+2. **Fireball's flight**: does it leave from the right hand, the left
+   hand, or between them?
+
+   wowlua: from point 38 where the missile names none (Classic Era's
+   names -1). Seen: (to do)
+3. **Fireball's burst**: as it lands, does anything also show on you (the
+   mage), or only on the target?
+
+   wowlua: only on the target. Seen: (to do)
+4. **Renew on someone else**: with Renew cast by a priest on another
+   player, does the priest glow too while it is up?
+
+   wowlua: only the player with Renew glows. Seen: (to do)
+5. **How long a burst shows**: about how many seconds is Fireball's burst
+   on the target visible?
+
+   wowlua: its model's first animation, at most 3 seconds. Seen: (to do)

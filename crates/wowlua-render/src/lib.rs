@@ -88,6 +88,10 @@ pub trait Assets {
     fn weathers(&mut self) -> Option<std::sync::Arc<wowlua_casc::weather::Weathers>> {
         None
     }
+    /// The build's spell visuals (decision T582).
+    fn spell_visuals(&mut self) -> Option<std::sync::Arc<wowlua_casc::spellvisual::SpellVisuals>> {
+        None
+    }
     /// The build's liquids (decision T557).
     fn liquids(&mut self) -> Option<std::sync::Arc<wowlua_casc::liquid::Liquids>> {
         None
@@ -366,6 +370,12 @@ impl Renderer {
     /// The 3D world's particles drawn in its last frame (decision T559).
     pub fn world_particles(&self) -> usize {
         self.world.particles
+    }
+
+    /// The spells' models on the 3D world's units and their missiles in
+    /// flight in its last frame (decision T582).
+    pub fn world_spell_effects(&self) -> (usize, usize) {
+        (self.world.effects, self.world.missiles)
     }
 
     /// The ground's clutter placed in the 3D world's last frame (decision
