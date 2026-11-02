@@ -68,6 +68,35 @@ struct Globals {
     /// (decision T583).
     sky_top: [f32; 4],
     sky_band: [f32; 4],
+    /// The light bounced from the sky and the ground (decision T585): w on.
+    bounce_sky: [f32; 4],
+    bounce_ground: [f32; 4],
+}
+
+/// The light bounced from the sky and the ground at `giQuality` (decision
+/// T585): none at 0; else the sky's light (the ambient, a little brighter,
+/// tinted by the sky's top color) and the ground's (less of the ambient,
+/// and the sunlight the ground sends back in its earthen color), more of
+/// both at each level. Unverified: the game's GI is not in its data.
+fn bounce_light(
+    gi: u32,
+    ambient: [f32; 4],
+    direct: [f32; 4],
+    sun: [f32; 4],
+    sky: [f32; 4],
+) -> [[f32; 4]; 2] {
+    if gi == 0 {
+        return [[0.0; 4]; 2];
+    }
+    let k = 1.0 + 0.25 * (gi.min(3) - 1) as f32;
+    let up = sun[2].max(0.0);
+    const EARTH: [f32; 3] = [0.55, 0.5, 0.4];
+    let sky_light = [0, 1, 2].map(|c| ambient[c] * (1.0 + 0.1 * k) + sky[c] * 0.08 * k);
+    let ground = [0, 1, 2].map(|c| ambient[c] * 0.55 + direct[c] * up * 0.12 * k * EARTH[c]);
+    [
+        [sky_light[0], sky_light[1], sky_light[2], 1.0],
+        [ground[0], ground[1], ground[2], 1.0],
+    ]
 }
 
 /// The terrain's shine's exponent (decision T579; unverified).
@@ -139,6 +168,41 @@ type LiquidPart = (
 /// list: two churning (the first, the third), the shore's two, the
 /// river's.
 const PBR_MASKS: [usize; 5] = [0, 2, 3, 4, 5];
+
+/// The ambient occlusion's (decision T584, `ao.wgsl`): its two pipelines,
+/// its settings, the layouts, and its target at half the world's size with
+/// its bindings (the depth read, the target read).
+struct AoSetup {
+    occlusion: wgpu::RenderPipeline,
+    apply: wgpu::RenderPipeline,
+    uniform: wgpu::Buffer,
+    depth_layout: wgpu::BindGroupLayout,
+    uniform_group: wgpu::BindGroup,
+    map_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    target: Option<AoTarget>,
+}
+
+struct AoTarget {
+    view: wgpu::TextureView,
+    reads_depth: wgpu::BindGroup,
+    reads_map: wgpu::BindGroup,
+    size: (u32, u32),
+}
+
+/// The ambient occlusion's settings (`ao.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct AoGlobals {
+    proj: [f32; 4],
+    how: [f32; 4],
+    more: [f32; 4],
+    size: [f32; 4],
+}
+
+/// The ambient occlusion's looks around each pixel by `SSAO`'s level (1
+/// low to 4 ultra; decision T584, unverified).
+const AO_SAMPLES: [u32; 4] = [6, 10, 16, 24];
 
 /// A liquid's surface point's attributes (`liquid.wgsl`, `pbr_water.wgsl`).
 const LIQUID_ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
@@ -366,6 +430,136 @@ fn spell_effect(
 }
 
 impl Renderer {
+    /// The placed buildings' and the props' batches, their opaque ones or
+    /// their blended ones, each group the camera can see (`in_view`).
+    fn draw_buildings<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        blended: bool,
+        placed: &[(u32, [f32; 16])],
+        doodad_ranges: &[(u32, u32, u32)],
+        in_view: &dyn Fn([f64; 3], f64) -> bool,
+    ) {
+        let (Some(setup), Some(bsetup), Some((instances, _))) = (
+            self.world.setup.as_ref(),
+            self.world.building_setup.as_ref(),
+            self.world.instances.as_ref(),
+        ) else {
+            return;
+        };
+        pass.set_pipeline(if blended {
+            &bsetup.blended
+        } else {
+            &bsetup.opaque
+        });
+        pass.set_bind_group(0, &setup.globals_group, &[]);
+        for (i, (file, m)) in placed.iter().enumerate() {
+            let Some(Some(b)) = self.world.buildings.get(file) else {
+                continue;
+            };
+            let at = i as u64 * 64;
+            pass.set_vertex_buffer(1, instances.slice(at..at + 64));
+            // (the placement's axes: their lengths its scale)
+            let axis = |k: usize| [m[k * 4], m[k * 4 + 1], m[k * 4 + 2]];
+            let scale = (0..3)
+                .map(|k| {
+                    let a = axis(k);
+                    (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
+                })
+                .fold(0.0f32, f32::max);
+            for g in &b.groups {
+                let c = g.middle;
+                let world = [0, 1, 2].map(|r| {
+                    f64::from(m[12 + r] + m[r] * c[0] + m[4 + r] * c[1] + m[8 + r] * c[2])
+                });
+                if !in_view(world, f64::from(g.reach * scale)) {
+                    continue;
+                }
+                pass.set_vertex_buffer(0, g.vertices.slice(..));
+                pass.set_index_buffer(g.indices.slice(..), wgpu::IndexFormat::Uint16);
+                for batch in g.batches.iter().filter(|b| b.blended == blended) {
+                    pass.set_bind_group(1, &batch.group, &[]);
+                    pass.draw_indexed(batch.start..batch.start + batch.count, 0, 0..1);
+                }
+            }
+        }
+        // (each model's doodads together)
+        for &(file, first, count) in doodad_ranges {
+            let Some(Some(d)) = self.world.doodads.get(&file) else {
+                continue;
+            };
+            let (at, end) = (u64::from(first) * 64, u64::from(first + count) * 64);
+            pass.set_vertex_buffer(1, instances.slice(at..end));
+            pass.set_vertex_buffer(0, d.vertices.slice(..));
+            pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
+            for batch in d.batches.iter().filter(|b| b.blended == blended) {
+                pass.set_bind_group(1, &batch.group, &[]);
+                pass.draw_indexed(batch.start..batch.start + batch.count, 0, 0..count);
+            }
+        }
+    }
+
+    /// The ambient occlusion's target for a depth of `width` by `height`
+    /// (decision T584): half its size, bound with the depth it reads.
+    fn ao_target(&mut self, depth: &wgpu::TextureView, width: u32, height: u32) {
+        let Some(ao) = self.world.ao_setup.as_mut() else {
+            return;
+        };
+        let size = ((width / 2).max(1), (height / 2).max(1));
+        let view = self
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("world ao"),
+                size: wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let reads_depth = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("world ao depth"),
+            layout: &ao.depth_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: ao.uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
+            ],
+        });
+        let reads_map = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("world ao map"),
+            layout: &ao.map_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&ao.sampler),
+                },
+            ],
+        });
+        ao.target = Some(AoTarget {
+            view,
+            reads_depth,
+            reads_map,
+            size,
+        });
+    }
+
     /// The spells' looks in the world (decision T582): on each unit
     /// casting its spell's precast models (a channel's too, and its
     /// channel models on itself or its target), its auras' models while
@@ -778,6 +972,8 @@ pub(crate) struct World {
     /// measurement's, `bench.rs`).
     pub(crate) still_props: bool,
     liquid_setup: Option<LiquidSetup>,
+    /// What draws the ambient occlusion (T584).
+    ao_setup: Option<AoSetup>,
     /// What draws the weather (T565), and how many fell in the last frame.
     weather_setup: Option<WeatherSetup>,
     pub(crate) weather_drops: u32,
@@ -1316,6 +1512,156 @@ impl Renderer {
             }),
             multiview_mask: None,
             cache: None,
+        });
+        // The ambient occlusion (T584): from the depth into its target,
+        // then laid over the world.
+        let depth_type = if samples > 1 {
+            "texture_depth_multisampled_2d"
+        } else {
+            "texture_depth_2d"
+        };
+        let ao_shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("world ao"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("ao.wgsl")
+                    .replace("DEPTH_TYPE", depth_type)
+                    .into(),
+            ),
+        });
+        let ao_uniform_entry = wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let ao_depth_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world ao depth"),
+            entries: &[
+                ao_uniform_entry,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: samples > 1,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let ao_uniform_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world ao settings"),
+            entries: &[ao_uniform_entry],
+        });
+        let ao_map_layout = d.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("world ao map"),
+            entries: &[texture_entry(0), sampler_entry(1)],
+        });
+        let ao_uniform = d.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("world ao"),
+            size: std::mem::size_of::<AoGlobals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let ao_uniform_group = d.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("world ao settings"),
+            layout: &ao_uniform_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ao_uniform.as_entire_binding(),
+            }],
+        });
+        let fullscreen = |label: &str,
+                          layouts: &[Option<&wgpu::BindGroupLayout>],
+                          entry: &str,
+                          format: wgpu::TextureFormat,
+                          blend: Option<wgpu::BlendState>,
+                          count: u32| {
+            d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some(label),
+                    bind_group_layouts: layouts,
+                    immediate_size: 0,
+                })),
+                vertex: wgpu::VertexState {
+                    module: &ao_shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: (count > 0).then_some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: msaa(count.max(1)),
+                fragment: Some(wgpu::FragmentState {
+                    module: &ao_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let ao_occlusion = fullscreen(
+            "world ao",
+            &[Some(&ao_depth_layout)],
+            "occlusion",
+            wgpu::TextureFormat::R8Unorm,
+            None,
+            0,
+        );
+        // (multiplying the world's colors, its alpha kept)
+        let multiply = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Dst,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        };
+        let ao_apply = fullscreen(
+            "world ao apply",
+            &[Some(&ao_uniform_layout), Some(&ao_map_layout)],
+            "apply",
+            crate::FORMAT,
+            Some(multiply),
+            samples.max(1),
+        );
+        let ao_sampler = d.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("world ao"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        self.world.ao_setup = Some(AoSetup {
+            occlusion: ao_occlusion,
+            apply: ao_apply,
+            uniform: ao_uniform,
+            depth_layout: ao_depth_layout,
+            uniform_group: ao_uniform_group,
+            map_layout: ao_map_layout,
+            sampler: ao_sampler,
+            target: None,
         });
         self.world.liquid_setup = Some(LiquidSetup {
             pipeline: liquid_pipeline,
@@ -1894,10 +2240,13 @@ impl Renderer {
                 sample_count: samples,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth32Float,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                // (read by the ambient occlusion: T584)
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
             let v = depth.create_view(&wgpu::TextureViewDescriptor::default());
+            self.ao_target(&v, width, height);
             self.world.depth = Some((v, width, height));
             self.world.msaa_color = (samples > 1).then(|| {
                 self.device
@@ -2238,6 +2587,8 @@ impl Renderer {
         };
         let rgb = |c: [f32; 3]| [c[0], c[1], c[2], 1.0];
         let with = |c: [f32; 3], a: f32| [c[0], c[1], c[2], a];
+        // (the light bounced from the sky and the ground, T585)
+        let bounce = bounce_light(w.gi, rgb(ambient), rgb(direct), sun, rgb(sky[0]));
         let water = match &light {
             Some(l) => (
                 with(l.river_close, l.water_alpha[0]),
@@ -2402,6 +2753,8 @@ impl Renderer {
             ],
             sky_top: rgb(sky[0]),
             sky_band: rgb(sky[2]),
+            bounce_sky: bounce[0],
+            bounce_ground: bounce[1],
         };
         // The weather (T565): what falls, how much, lit by the light.
         let drops = if self.eye_indoors(&placed, w.eye) {
@@ -2554,6 +2907,7 @@ impl Renderer {
                     crate::model::look_at([0.0; 3], l, u),
                     crate::model::perspective(fov_y, aspect, NEAR, SKY_FAR),
                     ([0.0, 0.0, -1.0], [1.0; 3], [0.0; 3]),
+                    [[0.0; 4]; 2],
                     None,
                     assets,
                 )
@@ -2612,6 +2966,7 @@ impl Renderer {
                     globals.view,
                     globals.proj,
                     ([-sun[0], -sun[1], -sun[2]], ambient, direct),
+                    bounce,
                     lookup,
                     assets,
                 )
@@ -2698,7 +3053,8 @@ impl Renderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: color,
                 depth_slice: None,
-                resolve_target: resolve,
+                // (resolved after the liquids' pass: T584)
+                resolve_target: None,
                 ops: wgpu::Operations {
                     load: if sky_models.is_some() {
                         wgpu::LoadOp::Load
@@ -2712,7 +3068,9 @@ impl Renderer {
                 view: depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Discard,
+                    // (read by the ambient occlusion and the liquids'
+                    // pass: T584)
+                    store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
             }),
@@ -2799,65 +3157,93 @@ impl Renderer {
                 pass.draw_indexed(0..lod.count, 0, 0..1);
             }
         }
-        // The buildings: their opaque batches, then the blended ones.
-        let (Some(bsetup), Some((instances, _))) = (
-            self.world.building_setup.as_ref(),
-            self.world.instances.as_ref(),
-        ) else {
-            return;
+        // The buildings' and props' opaque batches; their blended ones
+        // after the ambient occlusion (T584), which darkens only what is
+        // opaque.
+        self.draw_buildings(&mut pass, false, &placed, &doodad_ranges, &in_view);
+        // The ambient occlusion (T584): the world so far ends its pass,
+        // its depth read into the occlusion's target, laid over its colors
+        // as the liquids' pass begins.
+        drop(pass);
+        let ao = match (w.ao.level, self.world.ao_setup.as_ref()) {
+            (1.., Some(s)) => s.target.as_ref().map(|t| (s, t)),
+            _ => None,
         };
-        for blended in [false, true] {
-            pass.set_pipeline(if blended {
-                &bsetup.blended
-            } else {
-                &bsetup.opaque
+        if let Some((s, t)) = ao {
+            let (dw, dh) = (width as f32, height as f32);
+            let a = AoGlobals {
+                proj: [
+                    globals.proj[0],
+                    globals.proj[5],
+                    globals.proj[10],
+                    globals.proj[14],
+                ],
+                how: [
+                    w.ao.radius as f32,
+                    w.ao.strength as f32,
+                    w.ao.power as f32,
+                    w.ao.clamp as f32,
+                ],
+                more: [
+                    w.ao.fade.0 as f32,
+                    w.ao.fade.1 as f32,
+                    AO_SAMPLES[(w.ao.level.clamp(1, 4) - 1) as usize] as f32,
+                    samples as f32,
+                ],
+                size: [dw, dh, t.size.0 as f32, t.size.1 as f32],
+            };
+            self.queue
+                .write_buffer(&s.uniform, 0, bytemuck::bytes_of(&a));
+            let mut ao_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("world ao"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &t.view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
             });
-            pass.set_bind_group(0, &setup.globals_group, &[]);
-            for (i, (file, m)) in placed.iter().enumerate() {
-                let Some(Some(b)) = self.world.buildings.get(file) else {
-                    continue;
-                };
-                let at = i as u64 * 64;
-                pass.set_vertex_buffer(1, instances.slice(at..at + 64));
-                // (the placement's axes: their lengths its scale)
-                let axis = |k: usize| [m[k * 4], m[k * 4 + 1], m[k * 4 + 2]];
-                let scale = (0..3)
-                    .map(|k| {
-                        let a = axis(k);
-                        (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt()
-                    })
-                    .fold(0.0f32, f32::max);
-                for g in &b.groups {
-                    let c = g.middle;
-                    let world = [0, 1, 2].map(|r| {
-                        f64::from(m[12 + r] + m[r] * c[0] + m[4 + r] * c[1] + m[8 + r] * c[2])
-                    });
-                    if !in_view(world, f64::from(g.reach * scale)) {
-                        continue;
-                    }
-                    pass.set_vertex_buffer(0, g.vertices.slice(..));
-                    pass.set_index_buffer(g.indices.slice(..), wgpu::IndexFormat::Uint16);
-                    for batch in g.batches.iter().filter(|b| b.blended == blended) {
-                        pass.set_bind_group(1, &batch.group, &[]);
-                        pass.draw_indexed(batch.start..batch.start + batch.count, 0, 0..1);
-                    }
-                }
-            }
-            // (each model's doodads together)
-            for &(file, first, count) in &doodad_ranges {
-                let Some(Some(d)) = self.world.doodads.get(&file) else {
-                    continue;
-                };
-                let (at, end) = (u64::from(first) * 64, u64::from(first + count) * 64);
-                pass.set_vertex_buffer(1, instances.slice(at..end));
-                pass.set_vertex_buffer(0, d.vertices.slice(..));
-                pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
-                for batch in d.batches.iter().filter(|b| b.blended == blended) {
-                    pass.set_bind_group(1, &batch.group, &[]);
-                    pass.draw_indexed(batch.start..batch.start + batch.count, 0, 0..count);
-                }
-            }
+            ao_pass.set_pipeline(&s.occlusion);
+            ao_pass.set_bind_group(0, &t.reads_depth, &[]);
+            ao_pass.draw(0..3, 0..1);
         }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("world liquids"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: color,
+                depth_slice: None,
+                resolve_target: resolve,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if let Some((s, t)) = ao {
+            pass.set_pipeline(&s.apply);
+            pass.set_bind_group(0, &s.uniform_group, &[]);
+            pass.set_bind_group(1, &t.reads_map, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        self.draw_buildings(&mut pass, true, &placed, &doodad_ranges, &in_view);
         // The liquids last, seen through: what is under them shows (T557).
         if let Some(lsetup) = self.world.liquid_setup.as_ref() {
             pass.set_pipeline(&lsetup.pipeline);
@@ -3947,6 +4333,8 @@ mod tests {
             terrain_mip: 0,
             horizon: 1000.0,
             spells: Vec::new(),
+            ao: Default::default(),
+            gi: 0,
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);

@@ -1228,3 +1228,23 @@ at the water and one looking along it.
    across), and which way do they drift?
 
    wowlua: about a foot, drifting slowly each its own way. Seen: (to do)
+
+## The world's shading (decisions T584, T585)
+
+On WoW Forever: from its launch on 5 November 2026 (no login before).
+Stand at the foot of Northshire Abbey's steps at noon, the camera behind you
+looking at the steps, and take a screenshot after each step.
+
+1. **SSAO off**: `/run C_CVar.SetCVar("SSAO", "0")`
+2. **SSAO high**: `/run C_CVar.SetCVar("SSAO", "3")`
+
+   Seen: do the steps' edges, the corners where the steps meet the wall,
+   and the ground at the foot of the lantern post darken? wowlua: yes, a
+   soft shadow about a yard wide. Seen: (to do)
+3. **SSAO back**: `/run C_CVar.SetCVar("SSAO", "0")`
+4. **GI off**: `/run C_CVar.SetCVar("giQuality", "0")`
+5. **GI on**: `/run C_CVar.SetCVar("giQuality", "1")`
+
+   Seen: does anything change between the two (the undersides of the
+   steps and roofs lighter, a warm tint from the ground)? wowlua: the
+   whole scene a little brighter, undersides warmer. Seen: (to do)

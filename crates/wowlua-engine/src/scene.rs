@@ -353,6 +353,40 @@ pub struct WorldView {
     /// The spells gone off in the last seconds (decision T582), oldest
     /// first.
     pub spells: Vec<WorldSpell>,
+    /// Its ambient occlusion (decision T584).
+    pub ao: Occlusion,
+    /// Its light bounced from the sky and the ground (`giQuality`: 0 none;
+    /// decision T585).
+    pub gi: u32,
+}
+
+/// The 3D world's ambient occlusion as the game's SSAO settings say
+/// (decision T584).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Occlusion {
+    /// `SSAO`: 0 none, 1 low to 4 ultra.
+    pub level: u32,
+    /// `assaoRadius` (yards), `assaoShadowMult`, `assaoShadowPower`,
+    /// `assaoShadowClamp` (the most it darkens), `assaoFadeOutFrom` and
+    /// `assaoFadeOutTo` (yards from the eye).
+    pub radius: f64,
+    pub strength: f64,
+    pub power: f64,
+    pub clamp: f64,
+    pub fade: (f64, f64),
+}
+
+impl Default for Occlusion {
+    fn default() -> Self {
+        Occlusion {
+            level: 0,
+            radius: 1.85,
+            strength: 1.1,
+            power: 1.34,
+            clamp: 0.98,
+            fade: (50.0, 300.0),
+        }
+    }
 }
 
 /// Multisampling's samples for an `MSAAQuality` value (decision T578): its
@@ -558,6 +592,19 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     let specular = setting(vm, "specular", 1.0) != 0.0;
     let terrain_mip = setting(vm, "terrainMipLevel", 0.0).clamp(0.0, 4.0) as u32;
     let horizon = setting(vm, "horizonClip", far).max(far);
+    let base = Occlusion::default();
+    let ao = Occlusion {
+        level: setting(vm, "SSAO", 0.0).clamp(0.0, 4.0) as u32,
+        radius: setting(vm, "assaoRadius", base.radius).clamp(0.1, 20.0),
+        strength: setting(vm, "assaoShadowMult", base.strength).clamp(0.0, 5.0),
+        power: setting(vm, "assaoShadowPower", base.power).clamp(0.1, 5.0),
+        clamp: setting(vm, "assaoShadowClamp", base.clamp).clamp(0.0, 1.0),
+        fade: (
+            setting(vm, "assaoFadeOutFrom", base.fade.0).max(0.0),
+            setting(vm, "assaoFadeOutTo", base.fade.1).max(0.0),
+        ),
+    };
+    let gi = setting(vm, "giQuality", 0.0).clamp(0.0, 4.0) as u32;
     let render_scale = match setting(vm, "RenderScale", 1.0) {
         s if s.is_finite() => s.clamp(0.33, 2.0),
         _ => 1.0,
@@ -604,6 +651,8 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         terrain_mip,
         horizon,
         spells,
+        ao,
+        gi,
     })
 }
 

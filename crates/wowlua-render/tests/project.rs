@@ -33,6 +33,8 @@ fn north() -> WorldView {
         terrain_mip: 0,
         horizon: 1000.0,
         spells: Vec::new(),
+        ao: Default::default(),
+        gi: 0,
     }
 }
 

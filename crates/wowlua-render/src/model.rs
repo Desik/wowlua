@@ -264,8 +264,9 @@ pub(crate) struct WorldModels {
 const DEPTH_ONLY: u16 = u16::MAX;
 /// The model shader's globals' floats: its matrices and light (44), then
 /// the sun's shadow maps' (T564: four matrices, their ends, texels and
-/// settings, the eye's look and place).
-const GLOBALS: usize = 44 + SUN_LOOKUP;
+/// settings, the eye's look and place), the world's bounce light (T585:
+/// the sky's and the ground's).
+const GLOBALS: usize = 44 + SUN_LOOKUP + 8;
 /// The sun's shadow maps' part of the globals.
 pub(crate) const SUN_LOOKUP: usize = 64 + 5 * 4;
 
@@ -1293,6 +1294,7 @@ impl Renderer {
         view: Mat4,
         proj: Mat4,
         light: ([f32; 3], [f32; 3], [f32; 3]),
+        bounce: [[f32; 4]; 2],
         sun: Option<SunLookup>,
         assets: &mut dyn Assets,
     ) -> Option<WorldModels> {
@@ -1399,7 +1401,7 @@ impl Renderer {
         globals.extend_from_slice(&[dir[0], dir[1], dir[2], 0.0]);
         globals.extend_from_slice(&[ambient[0], ambient[1], ambient[2], 1.0]);
         globals.extend_from_slice(&[diffuse[0], diffuse[1], diffuse[2], 1.0]);
-        let group = self.model_globals(globals, sun.as_ref());
+        let group = self.model_globals(globals, sun.as_ref(), Some(bounce));
         let (vertices, indices) = if p.verts.is_empty() {
             (None, None)
         } else {
@@ -1546,17 +1548,26 @@ impl Renderer {
         globals.extend_from_slice(&view_proj);
         globals.extend_from_slice(&m2::IDENTITY);
         globals.extend_from_slice(&[0.0; 12]);
-        self.model_globals(globals, None)
+        self.model_globals(globals, None, None)
     }
 
     /// The model shader's globals (`globals`: its matrices and light) and
     /// the sun's shadow maps they take (the world's units, T564; none: no
     /// maps), bound.
-    fn model_globals(&self, mut globals: Vec<f32>, sun: Option<&SunLookup>) -> wgpu::BindGroup {
+    fn model_globals(
+        &self,
+        mut globals: Vec<f32>,
+        sun: Option<&SunLookup>,
+        bounce: Option<[[f32; 4]; 2]>,
+    ) -> wgpu::BindGroup {
         globals.resize(44, 0.0);
         match sun {
             Some(s) => globals.extend_from_slice(&s.uniform),
-            None => globals.resize(GLOBALS, 0.0),
+            None => globals.resize(44 + SUN_LOOKUP, 0.0),
+        }
+        globals.resize(44 + SUN_LOOKUP, 0.0);
+        for b in bounce.unwrap_or_default() {
+            globals.extend_from_slice(&b);
         }
         let ubuf = crate::buffer_with(
             &self.device,
@@ -2212,7 +2223,7 @@ impl Renderer {
         globals.extend_from_slice(&[l.direction[0], l.direction[1], l.direction[2], 0.0]);
         globals.extend_from_slice(&[ambient[0], ambient[1], ambient[2], 1.0]);
         globals.extend_from_slice(&[diffuse[0], diffuse[1], diffuse[2], 1.0]);
-        let ugroup = self.model_globals(globals, None);
+        let ugroup = self.model_globals(globals, None, None);
         let vbuf = crate::buffer_with(
             &self.device,
             &self.queue,
