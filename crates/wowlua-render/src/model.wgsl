@@ -17,9 +17,23 @@ struct Globals {
     shadow: vec4<f32>,
     look: vec4<f32>,
     eye: vec4<f32>,
+    // The world's light bounced from the sky and the ground (decision
+    // T585): w on.
+    bounce_sky: vec4<f32>,
+    bounce_ground: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
+
+// The ambient light a surface facing `n` takes (decision T585): with the
+// bounce light on (`bounce_sky.w`), from the sky's color facing up to the
+// ground's facing down; else the light's ambient.
+fn ambient_at(n: vec3<f32>) -> vec3<f32> {
+    if g.bounce_sky.w < 0.5 {
+        return g.ambient.rgb;
+    }
+    return mix(g.bounce_ground.rgb, g.bounce_sky.rgb, clamp(n.z * 0.5 + 0.5, 0.0, 1.0));
+}
 @group(0) @binding(1) var shadow_map: texture_depth_2d_array;
 @group(0) @binding(2) var shadow_compare: sampler_comparison;
 
@@ -303,7 +317,7 @@ fn fs(i: Out) -> @location(0) vec4<f32> {
     if ((i.flags & 1u) == 0u) {
         let n = normalize(i.normal);
         let d = max(dot(n, -normalize(g.light_dir.xyz)), 0.0) * sunlight(i.world, n);
-        lit = diffuse * min(g.ambient.rgb + g.diffuse.rgb * d, vec3<f32>(1.0));
+        lit = diffuse * min(ambient_at(n) + g.diffuse.rgb * d, vec3<f32>(1.0));
     }
     lit = lit + specular;
     if ((i.flags & 6u) != 0u) {

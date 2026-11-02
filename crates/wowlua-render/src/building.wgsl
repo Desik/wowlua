@@ -29,9 +29,26 @@ struct Globals {
     shadow_texels: vec4<f32>,
     shadow: vec4<f32>,
     look: vec4<f32>,
+    terrain: vec4<f32>,
+    // The sky's top and band colors (decision T583).
+    sky_top: vec4<f32>,
+    sky_band: vec4<f32>,
+    // The light bounced from the sky and the ground (decision T585): w on.
+    bounce_sky: vec4<f32>,
+    bounce_ground: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
+
+// The ambient light a surface facing `n` takes (decision T585): with the
+// bounce light on (`bounce_sky.w`), from the sky's color facing up to the
+// ground's facing down; else the light's ambient.
+fn ambient_at(n: vec3<f32>) -> vec3<f32> {
+    if g.bounce_sky.w < 0.5 {
+        return g.ambient.rgb;
+    }
+    return mix(g.bounce_ground.rgb, g.bounce_sky.rgb, clamp(n.z * 0.5 + 0.5, 0.0, 1.0));
+}
 @group(0) @binding(1) var blob: texture_2d<f32>;
 @group(0) @binding(2) var blob_sampler: sampler;
 @group(0) @binding(3) var shadow_map: texture_depth_2d_array;
@@ -156,7 +173,7 @@ fn fs(i: VOut) -> @location(0) vec4<f32> {
         discard;
     }
     let n = normalize(i.normal);
-    var light = g.ambient.rgb + g.direct.rgb * max(dot(n, g.sun.xyz), 0.0) * sunlight(i.world, n);
+    var light = ambient_at(n) + g.direct.rgb * max(dot(n, g.sun.xyz), 0.0) * sunlight(i.world, n);
     if how.y > 0.5 {
         light = i.color.rgb * 2.0;
     }

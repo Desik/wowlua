@@ -336,12 +336,12 @@ CameraZoomOut(20)",
             n + 15.0
         ),
     );
-    // (WoW Forever's PBR river: drawn with its own colors and water's frames)
+    // (WoW Forever's PBR river: its own colors and foam masks, T583)
     let kinds = wowlua_render::Assets::liquids(&mut assets).expect("the liquids");
     let kind = kinds.resolve(l).expect("its type").kind;
     assert_eq!(kind.look, wowlua_casc::liquid::Look::Pbr, "{}", kind.name);
     assert!(kind.colors.len() >= 2);
-    assert!(kinds.kind(1).is_some_and(|k| !k.frames.is_empty()));
+    assert_eq!(kind.frames.len(), 6, "{}: {:?}", kind.name, kind.frames);
     let scene = wowlua_engine::scene::build(&mut vm);
     r.render_blocking(&scene, 1.0, None, &mut assets)
         .expect("drawn");
@@ -352,6 +352,27 @@ CameraZoomOut(20)",
         let png = wowlua_render::encode_png(&image).expect("encoded");
         std::fs::write(
             std::path::PathBuf::from(dir).join("northshire-water.png"),
+            png,
+        )
+        .expect("written");
+    }
+    // (and from above, looking down on it)
+    run(
+        &mut vm,
+        "MoveViewDownStart()
+mock.advanceFrames(20, 1000 / 60)
+MoveViewDownStop()
+CameraZoomOut(10)
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let scene = wowlua_engine::scene::build(&mut vm);
+    let above = r
+        .render_blocking(&scene, 1.0, None, &mut assets)
+        .expect("drawn");
+    if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+        let png = wowlua_render::encode_png(&above).expect("encoded");
+        std::fs::write(
+            std::path::PathBuf::from(dir).join("northshire-water-above.png"),
             png,
         )
         .expect("written");
@@ -854,6 +875,81 @@ mock.advanceFrames(30, 1000 / 60)"
     assert_eq!(inside, 0);
     assert!(outside > 100, "{outside}");
     assert!(sun_props > 0, "{sun_props}");
+}
+
+/// The world's shading as the game's settings say: its ambient occlusion
+/// by `SSAO` (decision T584) darkens creases and what stands close to
+/// walls, and the bounce light by `giQuality` (decision T585) changes how
+/// surfaces facing up and down are lit.
+#[test]
+fn the_world_is_shaded_as_the_settings_say() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    run(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8916.5, x = -137.5, z = 0, instanceID = 0 }, facing = 0.4 })
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let mut shot = |vm: &mut Vm, ssao: u32, gi: u32| {
+        run(
+            vm,
+            &format!(
+                "C_CVar.SetCVar('SSAO', '{ssao}')
+C_CVar.SetCVar('giQuality', '{gi}')
+mock.advanceFrames(1, 1000 / 60)"
+            ),
+        );
+        let scene = wowlua_engine::scene::build(vm);
+        r.render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        let image = r
+            .render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+            let png = wowlua_render::encode_png(&image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(dir).join(format!("shading-ssao{ssao}-gi{gi}.png")),
+                png,
+            )
+            .expect("written");
+        }
+        image
+    };
+    let plain = shot(&mut vm, 0, 0);
+    let occluded = shot(&mut vm, 3, 0);
+    let bounced = shot(&mut vm, 0, 1);
+    let lum = |p: &[u8]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    let darker = plain
+        .pixels
+        .chunks(4)
+        .zip(occluded.pixels.chunks(4))
+        .filter(|(a, b)| lum(b) + 24 < lum(a))
+        .count();
+    let lighter = occluded
+        .pixels
+        .chunks(4)
+        .zip(plain.pixels.chunks(4))
+        .filter(|(a, b)| lum(a) > lum(b) + 3)
+        .count();
+    let changed = plain
+        .pixels
+        .chunks(4)
+        .zip(bounced.pixels.chunks(4))
+        .filter(|(a, b)| lum(a).abs_diff(lum(b)) > 12)
+        .count();
+    let all = plain.pixels.len() / 4;
+    eprintln!("ssao darkened {darker} of {all} (lightened {lighter}); giQuality changed {changed}");
+    assert!(darker > all / 100, "{darker}");
+    assert!(lighter < all / 1000, "{lighter}");
+    assert!(changed > all / 20, "{changed}");
 }
 
 /// Spells show in the world (decision T582): Fireball's glow in the
