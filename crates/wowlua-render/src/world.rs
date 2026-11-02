@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 use wowlua_casc::adt::{self, CHUNK, TILE, Tile, UNIT};
-use wowlua_engine::scene::WorldView;
+use wowlua_engine::scene::{WorldUnit, WorldView};
 
 use crate::{Assets, Renderer, Rgba};
 
@@ -301,7 +301,153 @@ fn cascades(
     out
 }
 
+/// The attachment points a missile flies from and to where its own names
+/// none or the model lacks it (decision T582, unverified): the hand a
+/// spell is aimed with, the chest.
+const SPELL_HAND_DIRECTED: u32 = 38;
+const CHEST: u32 = 34;
+
+/// A spell's model on a unit `since` seconds after its event (decision
+/// T582): none before its delay, nor one played once past its time.
+fn spell_effect(
+    a: &wowlua_casc::spellvisual::Attach,
+    since: f64,
+    once: bool,
+) -> Option<wowlua_engine::scene::Effect> {
+    let t = since - f64::from(a.delay);
+    let over = once && t * 1000.0 >= f64::from(crate::model::EFFECT_ONCE_MS);
+    (t >= 0.0 && !over).then(|| wowlua_engine::scene::Effect {
+        model: a.model,
+        attachment: u32::try_from(a.attachment).ok(),
+        offset: a.offset,
+        turn: a.turn,
+        scale: a.scale,
+        ms: (t * 1000.0) as u32,
+        once,
+    })
+}
+
 impl Renderer {
+    /// The spells' looks in the world (decision T582): on each unit
+    /// casting its spell's precast models (a channel's too, and its
+    /// channel models on itself or its target), its auras' models while
+    /// up; of each spell gone off its cast models once on the caster,
+    /// its missiles flying from the caster to the target at its speed,
+    /// and its impact models once on the target as they land (at once
+    /// without a missile). The models by unit, and the missiles as actors.
+    fn spell_looks(
+        &mut self,
+        w: &WorldView,
+        visuals: &wowlua_casc::spellvisual::SpellVisuals,
+        unit_actor: &dyn Fn(&WorldUnit) -> wowlua_engine::scene::Actor,
+        ms: u32,
+        assets: &mut dyn Assets,
+    ) -> (
+        Vec<(usize, wowlua_engine::scene::Effect)>,
+        Vec<wowlua_engine::scene::Actor>,
+    ) {
+        use wowlua_casc::spellvisual::Phase;
+        let mut on = Vec::new();
+        for u in &w.units {
+            if let Some(c) = &u.cast {
+                let look = visuals.look(c.spell);
+                let since = w.time - c.start;
+                for a in look.of(Phase::Precast) {
+                    on.extend(spell_effect(a, since, false).map(|e| (u.id, e)));
+                }
+                if c.channel {
+                    for a in look.of(Phase::Channel) {
+                        let who = if a.on_caster { Some(u.id) } else { c.target };
+                        if let (Some(who), Some(e)) = (who, spell_effect(a, since, false)) {
+                            on.push((who, e));
+                        }
+                    }
+                }
+            }
+            for &(spell, applied) in &u.auras {
+                let look = visuals.look(spell);
+                let since = if applied > 0.0 {
+                    w.time - applied
+                } else {
+                    w.time
+                };
+                for a in look.of(Phase::Aura) {
+                    on.extend(spell_effect(a, since, false).map(|e| (u.id, e)));
+                }
+            }
+        }
+        let unit = |id: usize| w.units.iter().find(|u| u.id == id);
+        let mut flying = Vec::new();
+        for g in &w.spells {
+            let since = w.time - g.at;
+            if since < 0.0 {
+                continue;
+            }
+            let look = visuals.look(g.spell);
+            for a in look.of(Phase::Cast) {
+                on.extend(spell_effect(a, since, true).map(|e| (g.caster, e)));
+            }
+            let target = g.target.unwrap_or(g.caster);
+            let mut landed = since;
+            if let (Some(c), Some(t), Some(first)) =
+                (unit(g.caster), unit(target), look.missiles.first())
+                && target != g.caster
+                && look.speed > 0.0
+            {
+                let (from_actor, to_actor) = (unit_actor(c), unit_actor(t));
+                let mut point = |actor: &wowlua_engine::scene::Actor, ids: &[i32]| {
+                    ids.iter()
+                        .filter_map(|&a| u32::try_from(a).ok())
+                        .find_map(|a| self.actor_point(actor, a, ms, assets))
+                        .unwrap_or([
+                            actor.position[0],
+                            actor.position[1],
+                            actor.position[2] + 1.0,
+                        ])
+                };
+                let from = point(
+                    &from_actor,
+                    &[first.from, SPELL_HAND_DIRECTED as i32, CHEST as i32],
+                );
+                let to = point(&to_actor, &[first.to, CHEST as i32]);
+                let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+                let far = f64::from((d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt());
+                let flight = far / f64::from(look.speed);
+                landed = since - flight;
+                if landed < 0.0 {
+                    let f = (since / flight.max(1e-6)) as f32;
+                    let at = [0, 1, 2].map(|k| from[k] + d[k] * f);
+                    let yaw = d[1].atan2(d[0]);
+                    let pitch = -d[2].atan2(d[0].hypot(d[1]));
+                    let phase = ((since * 1000.0) as u32).wrapping_sub(ms);
+                    for m in &look.missiles {
+                        flying.push(wowlua_engine::scene::Actor {
+                            source: wowlua_engine::scene::ModelSource::File(m.model),
+                            position: at,
+                            yaw,
+                            pitch,
+                            roll: 0.0,
+                            fixed_axes: false,
+                            scale: m.scale,
+                            alpha: 1.0,
+                            animation: 0,
+                            variation: 0,
+                            placement: None,
+                            phase,
+                            effects: Vec::new(),
+                        });
+                    }
+                }
+            }
+            if landed >= 0.0 {
+                for a in look.of(Phase::Impact) {
+                    on.extend(spell_effect(a, landed, true).map(|e| (target, e)));
+                }
+            }
+        }
+        (on, flying)
+    }
+
     /// Whether the eye is inside a placed building's indoor group (decision
     /// T581): the eye in the building's own space (its placement's axes,
     /// scaled) within the group's bounds.
@@ -580,6 +726,10 @@ pub(crate) struct World {
     pub(crate) moving: usize,
     /// The particles drawn in the last frame (T559).
     pub(crate) particles: usize,
+    /// The spells' models on units and the missiles flying in the last
+    /// frame (T582).
+    pub(crate) effects: usize,
+    pub(crate) missiles: usize,
     /// The ground's clutter placed in the last frame (T560).
     pub(crate) clutter: usize,
     /// The units' blob shadows drawn in the last frame (T563).
@@ -2168,28 +2318,42 @@ impl Renderer {
                 && along(right).abs() <= depth.max(0.0) * tan_x + ROOM
                 && along(w.up).abs() <= depth.max(0.0) * tan_y + ROOM
         };
-        let actors: Vec<wowlua_engine::scene::Actor> = w
-            .units
-            .iter()
-            .filter(|u| seen(u.at))
-            .map(|u| wowlua_engine::scene::Actor {
-                source: u.source.clone(),
-                position: f32s(u.at),
-                yaw: u.facing as f32,
-                pitch: 0.0,
-                roll: 0.0,
-                fixed_axes: false,
-                scale: 1.0,
-                alpha: near_fade(w.eye, u.at),
-                animation: u.animation,
-                variation: 0,
-                placement: None,
-                phase: 0,
-            })
-            .collect();
+        let unit_actor = |u: &WorldUnit| wowlua_engine::scene::Actor {
+            source: u.source.clone(),
+            position: f32s(u.at),
+            yaw: u.facing as f32,
+            pitch: 0.0,
+            roll: 0.0,
+            fixed_axes: false,
+            scale: 1.0,
+            alpha: near_fade(w.eye, u.at),
+            animation: u.animation,
+            variation: 0,
+            placement: None,
+            phase: 0,
+            effects: Vec::new(),
+        };
+        let shown: Vec<&WorldUnit> = w.units.iter().filter(|u| seen(u.at)).collect();
+        let mut actors: Vec<wowlua_engine::scene::Actor> =
+            shown.iter().map(|u| unit_actor(u)).collect();
+        // The spells' looks (decision T582): their models on the units
+        // shown, their missiles flying.
+        self.world.effects = 0;
+        self.world.missiles = 0;
+        if let Some(visuals) = assets.spell_visuals() {
+            let ms = (w.time * 1000.0) as u32;
+            let (on, flying) = self.spell_looks(w, &visuals, &unit_actor, ms, assets);
+            for (unit, e) in on {
+                if let Some(i) = shown.iter().position(|u| u.id == unit) {
+                    actors[i].effects.push(e);
+                    self.world.effects += 1;
+                }
+            }
+            self.world.missiles = flying.len();
+            actors.extend(flying);
+        }
         // (and the moving props the camera can see, T558: each in its own
         // phase, by where it stands)
-        let mut actors = actors;
         self.world.moving = 0;
         for (file, m) in moving {
             if !seen([f64::from(m[12]), f64::from(m[13]), f64::from(m[14])]) {
@@ -2212,6 +2376,7 @@ impl Renderer {
                 variation: 0,
                 placement: Some(m),
                 phase,
+                effects: Vec::new(),
             });
         }
         // The light's sky models about the eye (decision T556): unlit,
@@ -2235,6 +2400,7 @@ impl Renderer {
                         variation: 0,
                         placement: None,
                         phase: 0,
+                        effects: Vec::new(),
                     })
                     .collect()
             })
@@ -3637,6 +3803,7 @@ mod tests {
             specular: true,
             terrain_mip: 0,
             horizon: 1000.0,
+            spells: Vec::new(),
         };
         let t = (45f64).to_radians().tan();
         let maps = cascades(&w, t, t * 9.0 / 16.0, [0.3, 0.2, 0.9], 200.0, 3, 2048);

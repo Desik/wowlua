@@ -195,6 +195,23 @@ pub struct Actor {
     /// How far into its animations it is ahead of the clock (ms): a prop's
     /// own phase (T558).
     pub phase: u32,
+    /// The spells' models on it (decision T582).
+    pub effects: Vec<Effect>,
+}
+
+/// A spell's model on an actor (decision T582): at its attachment point
+/// (none, or one its model lacks: at its feet), moved, turned (yaw,
+/// pitch, roll) and sized there, `ms` into its animation; one played
+/// `once` gone after its animation (at most 3 seconds).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Effect {
+    pub model: u32,
+    pub attachment: Option<u32>,
+    pub offset: [f32; 3],
+    pub turn: [f32; 3],
+    pub scale: f32,
+    pub ms: u32,
+    pub once: bool,
 }
 
 /// How a model is looked at.
@@ -333,6 +350,9 @@ pub struct WorldView {
     /// How far its coarse terrain reaches (yards, `horizonClip`; decision
     /// T580): past `far` to the horizon, at least `far`.
     pub horizon: f64,
+    /// The spells gone off in the last seconds (decision T582), oldest
+    /// first.
+    pub spells: Vec<WorldSpell>,
 }
 
 /// Multisampling's samples for an `MSAAQuality` value (decision T578): its
@@ -379,6 +399,58 @@ pub struct WorldUnit {
     pub at: [f64; 3],
     pub facing: f64,
     pub animation: u32,
+    /// Its cast or channel (decision T582).
+    pub cast: Option<WorldCast>,
+    /// Its auras' spells (decision T582), each with when it was applied
+    /// (the clock's seconds; its expiration less its duration, else 0).
+    pub auras: Vec<(u32, f64)>,
+}
+
+/// A unit's cast or channel as the 3D world shows it (decision T582): the
+/// spell, its start (the clock's seconds), whom it is cast on (a unit's
+/// index).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorldCast {
+    pub spell: u32,
+    pub start: f64,
+    pub channel: bool,
+    pub target: Option<usize>,
+}
+
+/// A spell gone off as the 3D world shows it (decision T582): its cast
+/// flash on the caster, its missile flying to the target, its impact.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorldSpell {
+    pub spell: u32,
+    pub caster: usize,
+    pub target: Option<usize>,
+    /// When (the clock's seconds).
+    pub at: f64,
+}
+
+/// A unit's cast and auras for the 3D world (decision T582).
+fn spells_of(vm: &Vm, id: crate::units::UnitId) -> (Option<WorldCast>, Vec<(u32, f64)>) {
+    let u = &engine(vm).units;
+    let cast = u.casting.casts.get(&id).map(|c| WorldCast {
+        spell: c.spell_id as u32,
+        start: c.start,
+        channel: c.channel,
+        target: c.target.map(|t| t.0),
+    });
+    let auras = u
+        .auras
+        .iter()
+        .filter(|a| a.unit == id)
+        .map(|a| {
+            let applied = if a.duration > 0.0 {
+                a.expiration - a.duration
+            } else {
+                0.0
+            };
+            (a.spell_id as u32, applied)
+        })
+        .collect();
+    (cast, auras)
 }
 
 /// The units the 3D world shows within `reach` yards of the eye: the
@@ -396,12 +468,15 @@ fn world_units(vm: &mut Vm, eye: [f64; 3], reach: f64) -> Vec<WorldUnit> {
         // shuffling as it turns: T536)
         let (animation, turned) = engine(vm).world.movement.pose();
         if look.race > 0 {
+            let (cast, auras) = spells_of(vm, crate::units::PLAYER);
             out.push(WorldUnit {
                 id: crate::units::PLAYER.0,
                 source: ModelSource::Character(look),
                 at: [at.0, at.1, at.2],
                 facing: crate::unitinfo::player_facing(vm) + turned,
                 animation,
+                cast,
+                auras,
             });
         }
     }
@@ -435,12 +510,15 @@ fn world_units(vm: &mut Vm, eye: [f64; 3], reach: f64) -> Vec<WorldUnit> {
             (false, Some(_)) => 5,
             (false, None) => 0,
         };
+        let (cast, auras) = spells_of(vm, id);
         out.push(WorldUnit {
             id: id.0,
             source,
             at: [at.0, at.1, at.2],
             facing: crate::character::unit_facing(vm, id).unwrap_or(0.0),
             animation,
+            cast,
+            auras,
         });
     }
     out
@@ -486,6 +564,18 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
     };
     let units = world_units(vm, [e.at.0, e.at.1, e.at.2], objects);
     let time = vm.clock.elapsed_ms / 1000.0;
+    let spells = engine(vm)
+        .units
+        .casting
+        .gone
+        .iter()
+        .map(|g| WorldSpell {
+            spell: g.spell_id as u32,
+            caster: g.caster.0,
+            target: g.target.map(|t| t.0),
+            at: g.at,
+        })
+        .collect();
     let day_time = crate::clock::time_of_day(vm) / 30.0;
     let v = |a: (f64, f64, f64)| [a.0, a.1, a.2];
     Some(WorldView {
@@ -513,6 +603,7 @@ fn world_view(vm: &mut Vm) -> Option<WorldView> {
         specular,
         terrain_mip,
         horizon,
+        spells,
     })
 }
 
@@ -1689,6 +1780,7 @@ fn actor_of(vm: &mut Vm, id: WidgetId, frame: bool) -> Option<Actor> {
         variation: num(vm, anim.get(1), 0.0).max(0.0) as u32,
         placement: None,
         phase: 0,
+        effects: Vec::new(),
     })
 }
 

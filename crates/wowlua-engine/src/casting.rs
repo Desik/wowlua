@@ -42,7 +42,23 @@ pub struct Cast {
     pub bar: String,
     /// What follows its success (a gathered object's loot).
     pub done: Option<Value>,
+    /// Whom it is cast on (the 3D world's spell effects: decision T582).
+    pub target: Option<UnitId>,
 }
+
+/// A spell gone off (decision T582): the spell, its caster, whom it is
+/// cast on, when (the clock's).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gone {
+    pub spell_id: f64,
+    pub caster: UnitId,
+    pub target: Option<UnitId>,
+    pub at: f64,
+}
+
+/// How long a spell gone off is kept for the 3D world (seconds): its cast
+/// flash, missile and impact played within.
+const GONE_KEPT: f64 = 10.0;
 
 #[derive(Default)]
 pub struct Casting {
@@ -67,6 +83,37 @@ pub struct Casting {
     pub pending: Vec<(f64, String)>,
     /// Whether the player is moving (`player:setMoving`).
     pub moving: bool,
+    /// The spells gone off in the last seconds (decision T582).
+    pub gone: Vec<Gone>,
+}
+
+/// Whom a unit's spell is cast on (decision T582): the unit named, else
+/// the caster's target, else the caster; the caster for a spell without a
+/// target (its data's `targeted = false`).
+fn aim(vm: &mut Vm, me: UnitId, spell_id: f64, on: Option<UnitId>) -> Option<UnitId> {
+    if matches!(spell_field(vm, spell_id, "targeted"), Value::Bool(false)) {
+        return Some(me);
+    }
+    let u = &engine(vm).units;
+    let target = if me == units::PLAYER {
+        u.target
+    } else {
+        u.list.get(me.0).and_then(|x| x.target)
+    };
+    on.or(target).or(Some(me))
+}
+
+/// A unit's spell gone off, for the 3D world's effects (decision T582).
+fn went_off(vm: &mut Vm, me: UnitId, spell_id: f64, target: Option<UnitId>) {
+    let now = crate::clock::now(vm);
+    let gone = &mut engine_mut(vm).units.casting.gone;
+    gone.retain(|g| now - g.at <= GONE_KEPT);
+    gone.push(Gone {
+        spell_id,
+        caster: me,
+        target,
+        at: now,
+    });
 }
 
 fn field(vm: &mut Vm, t: TableRef, key: &str) -> Value {
@@ -326,7 +373,9 @@ fn start(
     if announce {
         sent(vm, me, g, spell_id, on);
     }
+    let target = aim(vm, me, spell_id, on);
     if seconds <= 0.0 && !channel {
+        went_off(vm, me, spell_id, target);
         cast_changed(vm, me);
         fire_cast(vm, "UNIT_SPELLCAST_SUCCEEDED", me, &[g, id, Value::Nil]);
         cast_changed(vm, me);
@@ -350,6 +399,7 @@ fn start(
         guid: guid.clone(),
         bar: bar.clone(),
         done,
+        target,
     };
     engine_mut(vm).units.casting.casts.insert(me, cast);
     let (start_event, _) = events(channel);
@@ -397,6 +447,7 @@ pub fn begin_cast(
         guid: guid.to_string(),
         bar: bar.to_string(),
         done: None,
+        target: None,
     };
     engine_mut(vm)
         .units
@@ -773,6 +824,8 @@ fn instant(vm: &mut Vm, id: f64) {
     let g = new_guid(vm, id);
     let g = vm.str(&g);
     sent(vm, me, g, id, None);
+    let target = aim(vm, me, id, None);
+    went_off(vm, me, id, target);
     cast_changed(vm, me);
     fire_cast(
         vm,
@@ -979,6 +1032,7 @@ pub(crate) fn stop(vm: &mut Vm, unit: UnitId, interrupted: bool) {
             &[g, id, Value::Nil, b],
         );
     } else if !cast.channel {
+        went_off(vm, unit, cast.spell_id, cast.target);
         fire_cast(vm, "UNIT_SPELLCAST_SUCCEEDED", unit, &[g, id, b]);
     }
     let (_, stop_event) = events(cast.channel);

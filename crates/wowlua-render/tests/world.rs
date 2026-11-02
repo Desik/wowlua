@@ -856,6 +856,71 @@ mock.advanceFrames(30, 1000 / 60)"
     assert!(sun_props > 0, "{sun_props}");
 }
 
+/// Spells show in the world (decision T582): Fireball's glow in the
+/// player's hands while cast, its missile flying to the wolf, its burst on
+/// the wolf as it lands; Renew's glow on the wolf while it is up.
+#[test]
+fn spells_show_their_looks() {
+    let Some((mut vm, casc)) = session_and_casc() else {
+        eprintln!("no camelot client: skipped");
+        return;
+    };
+    let Ok(mut r) = wowlua_render::Renderer::new_blocking() else {
+        eprintln!("no GPU: skipped");
+        return;
+    };
+    let mut assets = wowlua_render::client::ClientAssets::new(Some(casc), &[]);
+    wowlua_engine::set_world(&mut vm, true);
+    let mut shot = 0;
+    let mut looks_after = |vm: &mut Vm, script: &str| {
+        run(vm, script);
+        let scene = wowlua_engine::scene::build(vm);
+        let image = r
+            .render_blocking(&scene, 1.0, None, &mut assets)
+            .expect("drawn");
+        if let Some(dir) = std::env::var_os("WOWLUA_SHOTS") {
+            shot += 1;
+            let png = wowlua_render::encode_png(&image).expect("encoded");
+            std::fs::write(
+                std::path::PathBuf::from(dir).join(format!("spells-{shot}.png")),
+                png,
+            )
+            .expect("written");
+        }
+        r.world_spell_effects()
+    };
+    let before = looks_after(
+        &mut vm,
+        "mock.moveTo({ world = { y = -8949.95, x = -132.493, z = 0, instanceID = 0 }, facing = 0 })
+wolf = mock.spawnUnit({ name = 'Wolf', reaction = 'hostile', displayID = 1261,
+    world = { y = -8949.95 + 10, x = -132.493, z = 0 } })
+mock.player:target(wolf)
+mock.advanceFrames(2, 1000 / 60)",
+    );
+    let casting = looks_after(
+        &mut vm,
+        "mock.player:castSpell(133, { castTime = 2.5 })
+mock.advanceFrames(60, 1000 / 60)",
+    );
+    let flying = looks_after(&mut vm, "mock.advanceFrames(93, 1000 / 60)");
+    let landed = looks_after(&mut vm, "mock.advanceFrames(30, 1000 / 60)");
+    let gone = looks_after(&mut vm, "mock.advanceFrames(300, 1000 / 60)");
+    let renewed = looks_after(
+        &mut vm,
+        "wolf:applyAura({ spellId = 139, name = 'Renew', duration = 15 })
+mock.advanceFrames(60, 1000 / 60)",
+    );
+    eprintln!(
+        "before {before:?}, casting {casting:?}, flying {flying:?}, landed {landed:?}, gone {gone:?}, renewed {renewed:?}"
+    );
+    assert_eq!(before, (0, 0));
+    assert!(casting.0 >= 2, "the hands' glow: {casting:?}");
+    assert!(flying.1 >= 1, "the missile: {flying:?}");
+    assert!(landed.0 >= 1 && landed.1 == 0, "the burst: {landed:?}");
+    assert_eq!(gone, (0, 0));
+    assert!(renewed.0 >= 1, "Renew's glow: {renewed:?}");
+}
+
 /// The world's units posed on the GPU look as posed on the CPU (decision
 /// T540): Northshire's start among six NPCs, the same picture.
 #[test]

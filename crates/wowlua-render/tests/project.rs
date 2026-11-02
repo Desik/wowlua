@@ -32,6 +32,7 @@ fn north() -> WorldView {
         specular: true,
         terrain_mip: 0,
         horizon: 1000.0,
+        spells: Vec::new(),
     }
 }
 
