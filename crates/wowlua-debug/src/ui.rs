@@ -763,5 +763,12 @@ pub fn world_profile(vm: &mut Vm) -> Json {
     if !cvars.is_empty() {
         out["cvars"] = Json::Object(cvars);
     }
+    // (the realm's time of day and the weather: decision T565)
+    let minutes = (wowlua_engine::clock::time_of_day(vm) / 60.0).floor() as u32;
+    out["time"] = json!(format!("{:02}:{:02}", minutes / 60, minutes % 60));
+    let (kind, intensity) = wowlua_engine::engine(vm).world.weather;
+    if let Some(name) = ["rain", "snow", "sandstorm"].get((kind as usize).wrapping_sub(1)) {
+        out["weather"] = json!({ "kind": name, "intensity": intensity });
+    }
     out
 }

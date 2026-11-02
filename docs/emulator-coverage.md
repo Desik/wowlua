@@ -19,7 +19,7 @@ engine modules and the generated stand-ins, but no recording of their own: what
 their clients answer differently is unverified.
 
 - **API functions:** 5,110 of the 5,113 documented camelot functions have
-  behaviour (99.9%): 1,057 modelled, 353 answered from recordings, 3,700 by a
+  behaviour (99.9%): 1,058 modelled, 353 answered from recordings, 3,699 by a
   documentation-based fill-in. Of all 7,178 C functions the client has,
   documented or not, 7,175 have behaviour.
 - **Widget methods:** 1,477 of the 1,477 documented methods have behaviour
@@ -28,7 +28,7 @@ their clients answer differently is unverified.
   them (98.1%).
 - **Scenario replays:** 22,097 of 22,154 recorded lines replayed as the client
   logged them (99.7%); 25 of 29 scenarios line for line.
-- **Unverified rules:** 1,180 comments in the engine mark a rule unverified.
+- **Unverified rules:** 1,181 comments in the engine mark a rule unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
@@ -328,7 +328,7 @@ ones together):
 | `C_VignetteInfo` | 6 | 1 | 0 | 5 | 0 |
 | `C_VoiceChat` | 82 | 1 | 9 | 72 | 0 |
 | `C_WarbandScene` | 7 | 0 | 0 | 7 | 0 |
-| `C_Weather` | 1 | 0 | 0 | 1 | 0 |
+| `C_Weather` | 1 | 1 | 0 | 0 | 0 |
 | `C_WeeklyRewards` | 21 | 0 | 0 | 21 | 0 |
 | `C_Widget` | 3 | 3 | 0 | 0 | 0 |
 | `C_WoWLabsMatchmaking` | 25 | 0 | 0 | 25 | 0 |
@@ -346,13 +346,13 @@ ones together):
 | `math` | 38 | 38 | 0 | 0 | 0 |
 | `string` | 23 | 23 | 0 | 0 | 0 |
 | `table` | 23 | 23 | 0 | 0 | 0 |
-| **All** | 7,178 | 1,670 | 436 | 5,069 | 3 |
+| **All** | 7,178 | 1,671 | 436 | 5,068 | 3 |
 
 By where the function is listed:
 
 | List | Functions | Model | Recorded | Fill-in | Generated |
 |------|----------:|------:|---------:|--------:|----------:|
-| Blizzard's API documentation | 5,113 | 1,057 | 353 | 3,700 | 3 |
+| Blizzard's API documentation | 5,113 | 1,058 | 353 | 3,699 | 3 |
 | the client's other C functions (`/stdtest inventory`) | 2,065 | 613 | 83 | 1,369 | 0 |
 | the engine's own, in neither list | 15 | 14 | 0 | 1 | 0 |
 
@@ -368,7 +368,7 @@ The modules that answer, by how many functions and methods:
 
 | Module | Kind | Functions and methods |
 |--------|------|----------------------:|
-| `extras` | fill-in | 1,489 |
+| `extras` | fill-in | 1,488 |
 | `widgets` | model | 635 |
 | `globalsinfo` | fill-in | 524 |
 | `content` | fill-in | 520 |
@@ -396,7 +396,7 @@ The modules that answer, by how many functions and methods:
 | `facts` | recorded | 69 |
 | `formatters` | model | 62 |
 | `queries` | model | 62 |
-| `facts` | model | 59 |
+| `facts` | model | 60 |
 | `auction` | model | 52 |
 | `traits` | recorded | 47 |
 | `quests` | model | 41 |
@@ -844,7 +844,7 @@ read-back counts for its setter), from the test's misses
 
 ## Unverified rules
 
-The engine's code marks 1,180 rules unverified: each rests on Blizzard's
+The engine's code marks 1,181 rules unverified: each rests on Blizzard's
 documentation or UI code, warcraft.wiki.gg, elune or the function's name, not on
 a probe of the client. An in-game probe confirms or corrects each
 ([probes](../tests/ingame/PROBES.md)). Each line is the marking comment's first
@@ -1279,10 +1279,11 @@ page changes only when a rule is added, removed or reworded.
 - [extras.rs](../crates/wowlua-engine/src/extras.rs): `C_EncounterTimeline.GetCurrentTime()`: the client's clock, as `GetTime` (the full probe: 206454.927 within the run's...
 - [extras.rs](../crates/wowlua-engine/src/extras.rs): Artifact power a trait's ranks cost, from rank 0, whatever the tier (the full probe: rank 0 100, rank 1 300, tiers 0...
 
-### facts (14)
+### facts (15)
 
 - [facts.rs](../crates/wowlua-engine/src/facts.rs): Unverified: the neutral answers' exact shape (`GetRestState` when not rested, `GetInstanceInfo` outside any map, `Get...
 - [facts.rs](../crates/wowlua-engine/src/facts.rs): The free slots of the backpack and the four bags (the full probe, 1.60.1: 2, the backpack's two, its other bag full;...
+- [facts.rs](../crates/wowlua-engine/src/facts.rs): `C_Weather.GetCurrentWeather()`: the world's weather (decision T565), its kind (`Enum.WeatherType`) and intensity; cl...
 - [facts.rs](../crates/wowlua-engine/src/facts.rs): No zone: no PvP type, not a PvP subzone, no faction.
 - [facts.rs](../crates/wowlua-engine/src/facts.rs): Outside an instance: the continent the map lies on (the full probe: "Kalimdor", instance 1, in the Barrens; Eastern K...
 - [facts.rs](../crates/wowlua-engine/src/facts.rs): `SetPortraitTexture(texture, unit [, disableMasking])`, `C_NamePlate.SetNamePlateSize(width, height)`: what the clien...

@@ -175,6 +175,33 @@ fn set_time_of_day(vm: &mut Vm, c: NativeCall) -> Ret {
     Ok(vec![])
 }
 
+/// `setWeather(kind, intensity)`: the world's weather (decision T565),
+/// `"clear"`, `"rain"`, `"snow"` or `"sandstorm"`, its intensity 0 to 1
+/// (1 by default; clear none).
+fn set_weather(vm: &mut Vm, c: NativeCall) -> Ret {
+    let name = vm.check_str(&c, 1)?;
+    let name = String::from_utf8_lossy(vm.str_bytes(name)).into_owned();
+    let intensity = vm.opt_number(&c, 2, 1.0)?;
+    let kind = match name.as_str() {
+        "clear" => 0,
+        "rain" => 1,
+        "snow" => 2,
+        "sandstorm" => 3,
+        other => {
+            return Err(vm.error(&format!(
+                "setWeather: no weather `{other}` (clear, rain, snow or sandstorm)"
+            )));
+        }
+    };
+    let intensity = if kind == 0 {
+        0.0
+    } else {
+        intensity.clamp(0.0, 1.0)
+    };
+    crate::engine_mut(vm).world.weather = (kind, intensity);
+    Ok(vec![])
+}
+
 fn next_frame(vm: &mut Vm, c: NativeCall) -> Ret {
     let ms = vm.opt_number(&c, 1, 1000.0 / 60.0)?;
     clock::advance_frames(vm, 1, ms);
@@ -363,6 +390,7 @@ pub fn table(vm: &mut Vm) -> wowlua_vm::TableRef {
         ("keepField", keep_field),
         ("advanceTime", advance_time),
         ("setTimeOfDay", set_time_of_day),
+        ("setWeather", set_weather),
         ("setLatency", set_latency),
         ("snapshotTaken", snapshot_taken),
         ("loggedOut", logged_out),

@@ -187,6 +187,17 @@
         "null"
       ]
     },
+    "weather": {
+      "description": "The weather (`mock.setWeather`; clear without it).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Weather"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "auras": {
       "description": "The character's auras (`mock.player:applyAura`).",
       "anyOf": [
@@ -1743,6 +1754,36 @@
         }
       },
       "additionalProperties": true
+    },
+    "Weather": {
+      "description": "The world's weather (decision T565).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/WeatherKind"
+        },
+        "intensity": {
+          "description": "0 to 1 (1 without it).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "WeatherKind": {
+      "description": "A kind of weather.",
+      "type": "string",
+      "enum": [
+        "clear",
+        "rain",
+        "snow",
+        "sandstorm"
+      ]
     },
     "List11": {
       "description": "An object of items by key, or a list of them (recorded from Lua, a\ntable keyed 1, 2, 3 is a list and an empty one `{}`; the world reads\neither with `pairs`).",
