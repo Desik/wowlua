@@ -1054,6 +1054,8 @@ build has them all (`wowlua install` in `tests/ingame`).
 
 ## The Camelot update (decision T553)
 
+On WoW Forever: from its launch on 5 November 2026 (no login before).
+
 The declarations and Blizzard's UI code now come from the installed client
 (1.60.1.70658 or newer), but the engine's recordings are of 70425: its
 `Enum` corrections, CVars, number globals, colors, spells, talents and
@@ -1113,6 +1115,8 @@ now.
 
 ## The world's motion (decision T558)
 
+On WoW Forever: from its launch on 5 November 2026 (no login before).
+
 Look, do not run anything: on WoW Forever, stand at Northshire Abbey on a
 clear day and watch the trees and bushes about it for ten seconds.
 
@@ -1122,6 +1126,8 @@ clear day and watch the trees and bushes about it for ten seconds.
    the game would be the shaders' wind). Seen: (to do)
 
 ## The Graphics settings (decision T561)
+
+On WoW Forever: from its launch on 5 November 2026 (no login before).
 
 What each Graphics setting's levels set, recorded on WoW Forever (and,
 later, each Classic client). It changes your graphics settings for about
