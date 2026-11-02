@@ -177,6 +177,8 @@ pub(crate) struct World {
     pub(crate) moving: usize,
     /// The particles drawn in the last frame (T559).
     pub(crate) particles: usize,
+    /// The ground's clutter placed in the last frame (T560).
+    pub(crate) clutter: usize,
     liquid_setup: Option<LiquidSetup>,
     tiles: HashMap<(u32, i32, i32), Option<GpuTile>>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
@@ -1081,13 +1083,87 @@ impl Renderer {
                 }
             }
         }
+        // The ground's clutter (T560): in each square of the chunks within
+        // its distance, the models its layer's effect scatters, at steady
+        // random places on the ground, drawn as the props that stand.
+        let mut clutter: HashMap<u32, Vec<[f32; 16]>> = HashMap::new();
+        if w.clutter_dist > 0.0
+            && let Some(kinds) = assets.clutter()
+        {
+            let reach = w.clutter_dist;
+            for &(x, y) in &detailed {
+                let Some(tile) = assets.terrain(w.map, x, y) else {
+                    continue;
+                };
+                let (north, west) = adt::corner(x, y);
+                let far = |n: f64, wst: f64| (n - w.eye[0]).hypot(wst - w.eye[1]);
+                for c in &tile.chunks {
+                    let (south0, east0) = (f64::from(c.y) * CHUNK, f64::from(c.x) * CHUNK);
+                    if far(north - south0 - CHUNK / 2.0, west - east0 - CHUNK / 2.0) > reach + CHUNK
+                    {
+                        continue;
+                    }
+                    for cell in 0..64usize {
+                        let (row, col) = (cell / 8, cell % 8);
+                        if c.no_effect & (1 << cell) != 0 || c.hole(row, col) {
+                            continue;
+                        }
+                        let Some(effect) = c
+                            .layers
+                            .get(usize::from(c.effects[cell]))
+                            .and_then(|l| kinds.effect(l.effect))
+                        else {
+                            continue;
+                        };
+                        let count =
+                            (f64::from(effect.density) * w.clutter_density / 64.0).round() as u64;
+                        let mut seed = (x as u64) << 48
+                            ^ (y as u64) << 40
+                            ^ u64::from(c.x) << 32
+                            ^ u64::from(c.y) << 24
+                            ^ (cell as u64) << 16;
+                        let mut unit = || {
+                            // (splitmix64: the same places each frame)
+                            seed = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                            let mut z = seed;
+                            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                            ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+                        };
+                        for _ in 0..count {
+                            let south = south0 + (row as f64 + unit()) * UNIT;
+                            let east = east0 + (col as f64 + unit()) * UNIT;
+                            let (pn, pw) = (north - south, west - east);
+                            let pick = unit() as f32;
+                            let (size, turn) = (unit() as f32, unit() as f32);
+                            if far(pn, pw) > reach {
+                                continue;
+                            }
+                            let (Some(h), Some(d)) =
+                                (tile.height_at(south, east), effect.pick(pick))
+                            else {
+                                continue;
+                            };
+                            let scale = d.size.0 + (d.size.1 - d.size.0) * size;
+                            let yaw = d.turn.0 + (d.turn.1 - d.turn.0) * turn;
+                            clutter.entry(d.file).or_default().push(matrix_from(
+                                wowlua_casc::obj::placed([pn, pw, h], [0.0, yaw, 0.0], scale),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        self.world.clutter = clutter.values().map(Vec::len).sum();
         // (the buildings and doodad models out of reach go, as the tiles)
         if self.world.buildings.len() > 2 * placed.len() + 64 {
             let used: std::collections::HashSet<u32> = placed.iter().map(|(f, _)| *f).collect();
             self.world.buildings.retain(|f, _| used.contains(f));
         }
-        if self.world.doodads.len() > 2 * by_model.len() + 256 {
-            self.world.doodads.retain(|f, _| by_model.contains_key(f));
+        if self.world.doodads.len() > 2 * (by_model.len() + clutter.len()) + 256 {
+            self.world
+                .doodads
+                .retain(|f, _| by_model.contains_key(f) || clutter.contains_key(f));
         }
         let mut doodad_ranges: Vec<(u32, u32, u32)> = Vec::new();
         let mut matrices: Vec<[f32; 16]> = placed.iter().map(|(_, m)| *m).collect();
@@ -1110,6 +1186,15 @@ impl Renderer {
                     continue;
                 }
             }
+            self.world_doodad(file, assets);
+            if !matches!(self.world.doodads.get(&file), Some(Some(_))) {
+                continue;
+            }
+            doodad_ranges.push((file, matrices.len() as u32, ms.len() as u32));
+            matrices.extend(ms);
+        }
+        // (the clutter as it stands, together per model: T560)
+        for (file, ms) in clutter {
             self.world_doodad(file, assets);
             if !matches!(self.world.doodads.get(&file), Some(Some(_))) {
                 continue;

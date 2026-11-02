@@ -1630,6 +1630,48 @@ pub(crate) static LAYOUTS: &[(&str, Layouts)] = &[
         &[(0xDE2377FB, &["Pos", "PointOrder", "@ZoneLightID"])],
     ),
     (
+        "GroundEffectTexture",
+        &[
+            (
+                0xD93D5678,
+                &[
+                    "Density",
+                    "Sound",
+                    "DoodadID",
+                    "DoodadWeight",
+                    "SplatDensity",
+                ],
+            ),
+            (
+                0xE77A386D,
+                &["Density", "Sound", "DoodadID", "DoodadWeight"],
+            ),
+        ],
+    ),
+    (
+        "GroundEffectDoodad",
+        &[
+            (
+                0xCFD94A21,
+                &[
+                    "ModelFileID",
+                    "Flags",
+                    "Animscale",
+                    "Pushscale",
+                    "Size_variation_min",
+                    "Size_variation_max",
+                    "Rotation_variation_min",
+                    "Rotation_variation_max",
+                    "TerrainColorGradingRampID",
+                ],
+            ),
+            (
+                0x8394ED59,
+                &["ModelFileID", "Flags", "Animscale", "Pushscale"],
+            ),
+        ],
+    ),
+    (
         "GlobalColor",
         &[(0x760E0516, &["$LuaConstantName", "Color~4"])],
     ),

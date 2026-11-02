@@ -545,7 +545,9 @@ evening. The zone's sky models (clouds, stars, a storm) show behind it,
 and its lakes, rivers, sea and lava are drawn with their animated surfaces,
 the ground under the water showing through. Props that move in the game
 (banners, lanterns, mills, birds, fountains) play their animations near
-you, with their flames, smoke and sparkles.
+you, with their flames, smoke and sparkles. The ground grows its grass,
+flowers and stones as far as the game's ground clutter settings say
+(`groundEffectDist`, `groundEffectDensity`).
 Each game version has its own light, as its client does.
 
 With the world on, units are named as in the game. A unit's name floats

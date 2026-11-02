@@ -84,6 +84,10 @@ pub trait Assets {
     fn liquids(&mut self) -> Option<std::sync::Arc<wowlua_casc::liquid::Liquids>> {
         None
     }
+    /// The build's ground effects (decision T560).
+    fn clutter(&mut self) -> Option<std::sync::Arc<wowlua_casc::clutter::Clutter>> {
+        None
+    }
 }
 
 /// An atlas's part of its file.
@@ -354,6 +358,12 @@ impl Renderer {
     /// The 3D world's particles drawn in its last frame (decision T559).
     pub fn world_particles(&self) -> usize {
         self.world.particles
+    }
+
+    /// The ground's clutter placed in the 3D world's last frame (decision
+    /// T560).
+    pub fn world_clutter(&self) -> usize {
+        self.world.clutter
     }
 
     /// A renderer on the first adapter there is (a software one when there

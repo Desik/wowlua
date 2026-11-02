@@ -103,6 +103,11 @@ pub struct Chunk {
     pub holes: u64,
     pub area: u32,
     pub layers: Vec<Layer>,
+    /// Which layer's ground effect grows in each of its 8 × 8 squares
+    /// (`row * 8 + column`; decision T560).
+    pub effects: [u8; 64],
+    /// The squares that grow none: bit `row * 8 + column`.
+    pub no_effect: u64,
 }
 
 /// A texture layer: its texture (an index into the tile's), and how much
@@ -112,6 +117,8 @@ pub struct Chunk {
 pub struct Layer {
     pub texture: u32,
     pub alpha: Option<Vec<u8>>,
+    /// Its ground effect (`GroundEffectTexture`), 0 none (T560).
+    pub effect: u32,
 }
 
 /// The chunks of a file: each one's tag and body.
@@ -194,6 +201,9 @@ pub fn read(root: &[u8], tex: Option<&[u8]>, big_alpha: bool) -> Option<Tile> {
             holes,
             area: u32_at(body, 52),
             layers: Vec::new(),
+            // (2 bits a square, from the low bits; then a bit a square)
+            effects: std::array::from_fn(|i| (body[64 + i / 4] >> ((i % 4) * 2)) & 3),
+            no_effect: u64::from_le_bytes(body[80..88].try_into().unwrap()),
         };
         for (sub, b) in subchunks(body, 128) {
             match &sub {
@@ -323,7 +333,11 @@ fn read_textures(tile: &mut Tile, tex: &[u8], big_alpha: bool) {
                         .then(|| mcal.and_then(|a| a.get(offset..)))
                         .flatten()
                         .map(|a| alpha_map(a, flags & 0x200 != 0, big_alpha));
-                    chunk.layers.push(Layer { texture, alpha });
+                    chunk.layers.push(Layer {
+                        texture,
+                        alpha,
+                        effect: u32_at(mcly, at + 12),
+                    });
                 }
             }
             _ => {}

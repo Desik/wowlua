@@ -39,6 +39,8 @@ const FILES: &[(&str, u32)] = &[
     ("Criteria", 1263817),
     ("CriteriaTree", 1263818),
     ("GlobalColor", 4328468),
+    ("GroundEffectDoodad", 1308057),
+    ("GroundEffectTexture", 1308499),
     ("GlobalStrings", 1394440),
     ("HelmetGeosetData", 2821752),
     ("Item", 841626),
