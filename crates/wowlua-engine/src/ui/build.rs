@@ -1395,7 +1395,7 @@ pub fn module_key(path: &str) -> String {
 /// `import("AddOn.Dir.Name")`: the file `Dir/Name.lua` of the addon
 /// `AddOn` (Forever 70707's `FrameControlsManager.lua` imports
 /// `Blizzard_GamepadSmartNavigation.SecureHelper`, an addon it depends on;
-/// decision T566). Unverified: the error for a module not there.
+/// decision T576). Unverified: the error for a module not there.
 pub fn import(vm: &mut Vm, c: wowlua_vm::NativeCall) -> wowlua_vm::stdlib::Ret {
     let name = vm.check_str(&c, 1)?;
     let name = String::from_utf8_lossy(vm.str_bytes(name)).into_owned();

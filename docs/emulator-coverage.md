@@ -28,7 +28,7 @@ their clients answer differently is unverified.
   them (98.1%).
 - **Scenario replays:** 22,097 of 22,154 recorded lines replayed as the client
   logged them (99.7%); 25 of 29 scenarios line for line.
-- **Unverified rules:** 1,183 comments in the engine mark a rule unverified.
+- **Unverified rules:** 1,184 comments in the engine mark a rule unverified.
 
 | Flavor | Documented functions | With behaviour | Recorded answers | Widget methods | With behaviour | Recordings |
 |--------|---------------------:|---------------:|-----------------:|---------------:|---------------:|------------|
@@ -844,7 +844,7 @@ read-back counts for its setter), from the test's misses
 
 ## Unverified rules
 
-The engine's code marks 1,183 rules unverified: each rests on Blizzard's
+The engine's code marks 1,184 rules unverified: each rests on Blizzard's
 documentation or UI code, warcraft.wiki.gg, elune or the function's name, not on
 a probe of the client. An in-game probe confirms or corrects each
 ([probes](../tests/ingame/PROBES.md)). Each line is the marking comment's first
@@ -2269,7 +2269,7 @@ page changes only when a rule is added, removed or reworded.
 - [widgetops.rs](../crates/wowlua-engine/src/widgetops.rs): A button's `Clear…Texture()`: the state's texture emptied (no file or atlas, hidden) but still the button's, `Get…Tex...
 - [widgetops.rs](../crates/wowlua-engine/src/widgetops.rs): Methods of what the engine draws or keeps nothing of: model cameras, lights and animation kits, the browser and the s...
 
-### widgets (50)
+### widgets (51)
 
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): As `/stdtest engine` recorded on WoW Forever 1.60.1 (fixture `tests/client/forever-camelot-engine.lua`, checked by `w...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): Edit boxes Lua set the text of this frame: `OnTextChanged(false)` runs once each after the frame's `OnUpdate`, not at...
@@ -2289,6 +2289,7 @@ page changes only when a rule is added, removed or reworded.
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): A script that takes input, given (set, hooked or from XML), turns that input on; taking it away does not turn it off.
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): (isRegistered, units): the units a unit event was registered for (unverified).
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): Fires `event` at every widget registered for it, in creation order (unverified); a unit event only where the unit (th...
+- [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `SetShown(shown)`: a secret follows the value it hides (decision T575: Blizzard's aura buttons hide with `SetShown(se...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `GetObjectTable()`: the object's own table (Blizzard's aura containers hand it to an addon's button initializer, whic...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `CreateActor(name, template)`: a model scene's actor (its parent, not among its children: `GetNumActors`, `GetActorAt...
 - [widgets.rs](../crates/wowlua-engine/src/widgets.rs): `MessageFrame:AddMessage(text, r, g, b, a, messageID)`: a font string of the frame shows it (`GetFontStringByID` find...

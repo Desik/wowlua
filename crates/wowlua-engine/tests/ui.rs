@@ -446,7 +446,7 @@ end
 /// secure and its files keep their names (spec §17.7: Blizzard's Lua files
 /// run as secure code with their addon's name).
 /// `import` finds a module next to the importing file (`.Name`) or in
-/// another addon's folder (`AddOn.Name`, decision T566).
+/// another addon's folder (`AddOn.Name`, decision T576).
 #[test]
 fn modules_are_imported_by_relative_and_addon_names() {
     let interface = tree(
@@ -494,7 +494,7 @@ fn modules_are_imported_by_relative_and_addon_names() {
 
 /// A secure `OnAttributeChanged` that tainted code's `SetAttribute` runs
 /// starts untainted, also from a Blizzard template's `OnLoad` in an
-/// addon's `CreateFrame` (whose own taint goes on; decision T566: 70707's
+/// addon's `CreateFrame` (whose own taint goes on; decision T576: 70707's
 /// smart navigation sets its secure values so).
 #[test]
 fn attribute_handlers_start_untainted_while_a_frame_is_made() {

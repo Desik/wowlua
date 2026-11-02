@@ -154,7 +154,7 @@ The client's security model, in the VM:
     within such an `OnLoad` of an addon's `CreateFrame` (Forever 70707's
     smart navigation sets its secure values from tainted template code
     through its own attribute handler, which asserts it runs secure;
-    unverified, decision T566).
+    unverified, decision T576).
     `C_RestrictedActions.CheckAllowProtectedFunctions(object)` follows the
     same rule for its object: false for tainted code in combat lockdown on a
     protected frame (UIParent among them), true on an unprotected one, so an
@@ -248,6 +248,13 @@ A widget's alpha set from a secret (`SetAlpha`, `SetAlphaFromBoolean`) is
 its secret alpha aspect: `GetAlpha` reads back a secret, and keeps doing so
 after a plain alpha is set, whose value still applies (decision T251;
 found in game). What takes the aspect away again is unverified.
+
+A widget shown or hidden from a secret (`SetShown(secret)`, which only
+secure code may pass) follows the value the secret hides: a secret false
+or nil hides it (decision T575; Blizzard's aura buttons hide themselves
+with `SetShown(secretwrap(false))` when they hold no aura). `IsShown`
+answers a plain boolean (unverified: whether the client answers a secret
+there).
 
 A status bar's value or range set from a secret is its bar value aspect:
 `GetValue`, `GetInterpolatedValue` and `GetMinMaxValues` read back
@@ -373,7 +380,7 @@ The WoW API the VM's code calls, per flavor.
   documentation names otherwise, while that build's code still reads the
   recorded name, keeps its recorded values until the battery is recorded
   again (camelot 70707's `LevelConstsExposed`, documented as
-  `LevelConstsExposed_Camelot`; decision T566). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
+  `LevelConstsExposed_Camelot`; decision T576). `C_UIColor.GetColors` answers the installed client's `GlobalColor`
   table, by name, each byte times 1/255 in floats as the client's
   (`data/<flavor>-colors.txt`, which `cargo xtask types gen` writes).
 - **Natives.** The API functions are natives of the VM, as the client's are C
@@ -494,7 +501,7 @@ The WoW API the VM's code calls, per flavor.
   `RemoveAnimations`) undo their setters, but a button's cleared state
   texture stays its own, emptied and hidden (`GetNormalTexture` answers
   it: Forever 70707's item buttons mask it after their `OnLoad`, in which
-  the professions' recraft slot clears it; unverified, decision T566); `LockHighlight` is
+  the professions' recraft slot clears it; unverified, decision T576); `LockHighlight` is
   `SetHighlightLocked(true)`. The methods of what the engine draws or keeps
   nothing of (model cameras and lights, the browser, the shop's checkout,
   housing's pins, the minimap's blips, movies, vector graphics) change
@@ -563,7 +570,7 @@ key bindings (`Bindings_<suffix>.xml`, `Bindings.xml`), the files its XML
 includes, and the addons it depends on or loads (`LoadAddOn("…")`). The global
 strings are the client's `GlobalStrings` table's that are set in the game,
 the escapes the table writes them with (`\n`, `\32`, `\\`) read as in Lua
-(decision T566).
+(decision T576).
 `WOWLUA_UI_FROM=upstream` leaves the installation out.
 
 Elsewhere (CI), the code comes from wow-ui-source at the flavor's client
@@ -598,7 +605,7 @@ takes the flavor's `Interface` folder and its global strings:
   code whoever runs when they load, and keep their own file names. A file's
   result is its module: `import(".Dir.Name")` gives the result of
   `Dir/Name.lua` next to the importing file, `import("AddOn.Dir.Name")` that
-  of `Dir/Name.lua` in the addon `AddOn`'s folder (decision T566).
+  of `Dir/Name.lua` in the addon `AddOn`'s folder (decision T576).
 - **XML** builds widgets as the client does: virtual elements are templates
   (for `inherits` and `CreateFrame`), intrinsic ones frame types; an
   element's templates apply first, then its attributes, mixins, `parentKey`

@@ -1074,14 +1074,14 @@ trainers. These steps record them again on the updated client.
    and the documentation's `Constants.LevelConstsExposed_Camelot`, its
    `MIN_RES_SICKNESS_LEVEL` 11; the engine keeps the recorded
    `LevelConstsExposed`, 10, 10, 10, which 70707's micro menu reads,
-   decision T566). The trees' and transmog sources' tests (`wowlua-render`,
+   decision T576). The trees' and transmog sources' tests (`wowlua-render`,
    `CHANGED`) list what 70707's tables changed: the mage tree, two
    sources' appearances. Recorded: (to do)
 5. **One color** (decision T554): `/run for _,c in ipairs(C_UIColor.GetColors()) do if c.baseTag=="COMPACT_UNIT_FRAME_FRIENDLY_HEALTH_COLOR" then print(c.color:GetRGBA()) end end`
 
    wowlua: `0.16862745583057 0.57647061347961 0.019607843831182 0`, the
    installed table's alpha (0); 70425 answered 1. Recorded: (to do)
-6. **A cleared normal texture** (decision T566): `/console scriptErrors 1`,
+6. **A cleared normal texture** (decision T576): `/console scriptErrors 1`,
    then `/run local b=CreateFrame("Button") b:SetNormalTexture("Interface\\Buttons\\WHITE8X8") local t=b:GetNormalTexture() b:ClearNormalTexture() print(b:GetNormalTexture()==t, t:GetTexture(), t:IsShown())`
 
    wowlua: `true nil false` (inferred: 70707's item buttons mask their

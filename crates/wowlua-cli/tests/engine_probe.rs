@@ -263,7 +263,7 @@ const NEWER_BUILD: &[&str] = &[
     // 70707: a purchase result added (`ProxyNoMixedAlliance`), and the
     // level constants documented as `LevelConstsExposed_Camelot`, the
     // resurrection sickness's from level 11 (the recorded
-    // `LevelConstsExposed` kept, decision T566).
+    // `LevelConstsExposed` kept, decision T576).
     "probe.enums.VasTransactionPurchaseResultMeta.NumValues",
     "probe.hidden.Enum.VasTransactionPurchaseResultMeta.NumValues",
     "probe.constants.LevelConstsExposed_Camelot.MIN_ACHIEVEMENT_LEVEL",

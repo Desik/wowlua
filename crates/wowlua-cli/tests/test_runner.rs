@@ -623,6 +623,85 @@ end
     assert!(text.contains("1 passed, 0 failed"), "{text}");
 }
 
+/// Blizzard's aura buttons on camelot show only while they hold an aura
+/// (decision T575): a player without auras shows none in a container of
+/// one group per dispel type (SuuUI's debuff-type badges), and a Magic
+/// debuff shows the Magic group's button alone. The buttons hide with
+/// `SetShown(secretwrap(false))`, which showed them while a secret false
+/// counted as true.
+#[test]
+fn aura_buttons_show_only_their_auras() {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/types-src");
+    if !source.join("camelot/Interface").exists() {
+        eprintln!("skipped: no Blizzard UI code (run `cargo xtask types fetch`)");
+        return;
+    }
+    let dir = project(
+        r#""camelot": {}"#,
+        &[(
+            "tests/aura.test.wowlua",
+            r#"import test, expect from "wowlua:test"
+import * as aura from "wowlua:aura"
+import * as mock from "wowlua:mock"
+
+const TYPES = { "Magic", "Curse", "Poison", "Disease" }
+
+-- The buttons of each type's group the container shows.
+local function shown(made: any): { [string]: number }
+    local counts: { [string]: number } = {}
+    for _, kind in ipairs(TYPES) do
+        local n = 0
+        for i = 1, made:GetAuraGroupFrameCount(kind) do
+            if made:GetAuraGroupFrame(kind, i):IsShown() then
+                n = n + 1
+            end
+        end
+        counts[kind] = n
+    end
+    return counts
+end
+
+@test("only the auras the player has")
+local function onlyTheirs()
+    const groups: any[] = {}
+    for _, kind in ipairs(TYPES) do
+        groups[#groups + 1] = { key = kind, filter = "HARMFUL", max = 1, dispelTypes = { kind } }
+    end
+    const made = aura.container(UIParent, { unit = "player", groups = groups }).frame :: any
+    mock.nextFrame(2)
+    expect(made:GetAuraGroupFrameCount("Magic") > 0).toBe(true)
+    expect(shown(made)).toEqual({ Magic = 0, Curse = 0, Poison = 0, Disease = 0 })
+    const id = mock.player:applyAura({ spellId = 116, name = "Frostbolt", duration = 9, harmful = true, dispelName = "Magic" })
+    mock.nextFrame(2)
+    expect(shown(made)).toEqual({ Magic = 1, Curse = 0, Poison = 0, Disease = 0 })
+    mock.player:removeAura(id)
+    mock.nextFrame(2)
+    expect(shown(made)).toEqual({ Magic = 0, Curse = 0, Poison = 0, Disease = 0 })
+end
+"#,
+        )],
+    );
+    let manifest = dir.path().join("wowlua.json");
+    let text = fs::read_to_string(&manifest).unwrap();
+    fs::write(
+        &manifest,
+        text.replacen('{', r#"{ "test": { "blizzard-ui": true },"#, 1),
+    )
+    .unwrap();
+    let out = wowlua(dir.path())
+        .arg("test")
+        .env("WOWLUA_UI_SOURCE", &source)
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("1 passed, 0 failed"), "{text}");
+}
+
 /// `mock.slash` with Blizzard's chat (decision T233): the line goes through
 /// the chat's edit box as typed and sent, so Blizzard's own commands run
 /// (it moves them out of `SlashCmdList` into its hash tables, where the

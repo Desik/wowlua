@@ -15,6 +15,16 @@ fn run(vm: &mut Vm, src: &str) -> Vec<String> {
     let f = vm
         .load_as(src.as_bytes(), "@MyAddon/main.lua", "MyAddon")
         .expect("compiles");
+    call(vm, f)
+}
+
+/// Runs code as Blizzard's (secure: it may use secrets).
+fn secure(vm: &mut Vm, src: &str) -> Vec<String> {
+    let f = vm.load(src.as_bytes(), "@Secure.lua").expect("compiles");
+    call(vm, f)
+}
+
+fn call(vm: &mut Vm, f: Value) -> Vec<String> {
     let text = |vm: &Vm, v: Value| match v {
         Value::Str(s) => String::from_utf8_lossy(vm.str_bytes(s)).into_owned(),
         Value::Num(n) => format!("{n}"),
@@ -103,6 +113,25 @@ return tostring(issecretvalue(plain:GetAlpha())), tostring(before), tostring(iss
   tostring(f:HasSecretAspect(Enum.SecretAspect.Alpha)), tostring(issecretvalue(g:GetAlpha()))",
     );
     assert_eq!(r, ["false", "true", "true", "true", "true"]);
+}
+
+/// `SetShown` given a secret follows the value it hides (decision T575):
+/// Blizzard's aura buttons hide themselves with
+/// `SetShown(secretwrap(false))` when they hold no aura.
+#[test]
+fn set_shown_reads_through_a_secret() {
+    let mut vm = vm();
+    let r = secure(
+        &mut vm,
+        "local f = CreateFrame('Frame')
+f:SetShown(secretwrap(false))
+local hidden = f:IsShown()
+f:SetShown(secretwrap(true))
+local shown = f:IsShown()
+f:SetShown(secretwrap(nil))
+return tostring(hidden), tostring(shown), tostring(f:IsShown())",
+    );
+    assert_eq!(r, ["false", "true", "false"]);
 }
 
 /// A protected frame anchored to a region is refused, out of combat too;

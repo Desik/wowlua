@@ -303,7 +303,7 @@ pub fn extract_installed(
 }
 
 /// What marks an installed client's copy complete: its build and how it
-/// was read (2: the global strings' escapes read, decision T566), so a
+/// was read (2: the global strings' escapes read, decision T576), so a
 /// copy an older wowlua read is read again.
 #[cfg(feature = "native")]
 fn installed_stamp(casc: &wowlua_casc::Casc) -> String {

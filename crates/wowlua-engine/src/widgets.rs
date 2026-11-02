@@ -1878,8 +1878,13 @@ fn hide(vm: &mut Vm, id: WidgetId, _c: NativeCall) -> Ret {
     Ok(vec![])
 }
 
+/// `SetShown(shown)`: a secret follows the value it hides (decision T575:
+/// Blizzard's aura buttons hide with `SetShown(secretwrap(false))`, and
+/// showed as phantom auras while a secret false counted as true).
+/// Unverified: whether the client then answers `IsShown` as a secret.
 fn set_shown_method(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
-    set_shown(vm, id, c.arg(2).truthy());
+    let shown = vm.hidden(c.arg(2)).truthy();
+    set_shown(vm, id, shown);
     Ok(vec![])
 }
 
@@ -3726,7 +3731,7 @@ fn set_attribute(vm: &mut Vm, id: WidgetId, c: NativeCall) -> Ret {
     // new frame's `OnLoad` (decision T243's taint going on is the OnLoad's,
     // not this handler's): Forever 70707's smart navigation sets its secure
     // values from tainted template code through its own attribute handler,
-    // which asserts it runs secure (decision T566; unverified).
+    // which asserts it runs secure (decision T576; unverified).
     let creating = std::mem::replace(&mut engine_mut(vm).world.ui.creating, false);
     run_script(vm, id, "OnAttributeChanged", &[name, v]);
     engine_mut(vm).world.ui.creating = creating;

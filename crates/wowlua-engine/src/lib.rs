@@ -866,7 +866,7 @@ type RecordedConstants = (&'static str, &'static str, &'static [(&'static str, f
 /// while that build's own UI code still reads the recorded name
 /// (`MainMenuBarMicroButtons.lua`, `MainMenuBarMicroButtonsOverrides.lua`):
 /// flavor, table, fields. Kept until the battery is recorded again
-/// (decision T566; tests/ingame/PROBES.md, "The Camelot update").
+/// (decision T576; tests/ingame/PROBES.md, "The Camelot update").
 const RECORDED_CONSTANTS: &[RecordedConstants] = &[(
     "camelot",
     "LevelConstsExposed",
