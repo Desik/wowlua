@@ -83,6 +83,40 @@ return before, meterRow:GetFrameLevel(), shown, clicked, plain:GetFrameLevel()",
     assert_eq!(r, ["1", "3", "4", "41", "40"]);
 }
 
+/// Of two frames at the same strata and level, the one placed later is on
+/// top: made later, or its level changed later (decision T587; a guess
+/// until the probe "Frames of the same level"). SuuUI's character window
+/// sets its tab buttons' level after making the chosen tab's marker at the
+/// same level: the labels on top, as in the game.
+#[test]
+fn of_two_frames_at_one_level_the_one_placed_later_is_on_top() {
+    let mut vm = vm();
+    let on_top = |vm: &mut Vm| {
+        let (k, _) = wowlua_engine::scene::pixel_scale(vm);
+        let id = wowlua_engine::scene::hit_test(vm, 50.0 * k, 50.0 * k).expect("a frame");
+        wowlua_engine::engine(vm).world.widgets[id.0]
+            .name
+            .clone()
+            .unwrap_or_default()
+    };
+    run(
+        &mut vm,
+        "for _, name in ipairs({ 'Red', 'Blue' }) do
+    local f = CreateFrame('Frame', name, UIParent)
+    f:SetSize(100, 100)
+    f:SetPoint('TOPLEFT')
+    f:SetFrameLevel(50)
+    f:EnableMouse(true)
+end",
+    );
+    let made = on_top(&mut vm);
+    run(&mut vm, "Red:SetFrameLevel(50)");
+    let same = on_top(&mut vm);
+    run(&mut vm, "Red:SetFrameLevel(49) Red:SetFrameLevel(50)");
+    let changed = on_top(&mut vm);
+    assert_eq!([made, same, changed], ["Blue", "Blue", "Red"]);
+}
+
 #[test]
 fn an_edit_box_inserts_in_place_of_its_selection() {
     let mut vm = vm();

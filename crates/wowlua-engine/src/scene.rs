@@ -1673,7 +1673,14 @@ fn frames_in_order(vm: &mut Vm) -> Vec<WidgetId> {
                 .map(|c| (c.0, strata, Some(level))),
         );
     }
-    frames.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
+    // (at the same strata and level, the frame placed later on top: T587)
+    let e = engine(vm);
+    let placed = |i: usize| e.world.widgets[i].placed;
+    frames.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then(a.1.total_cmp(&b.1))
+            .then(placed(a.2).cmp(&placed(b.2)))
+    });
     frames.into_iter().map(|(_, _, i)| WidgetId(i)).collect()
 }
 

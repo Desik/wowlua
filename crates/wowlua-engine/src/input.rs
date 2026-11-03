@@ -443,7 +443,7 @@ pub fn edit_box_key(vm: &mut Vm, key: &str) -> bool {
 /// take keys by their focus alone (the chat's box, shown with a key
 /// script, keeps no key from the bindings).
 fn keyboard_frames(vm: &mut Vm) -> Vec<WidgetId> {
-    let mut frames: Vec<(usize, i64, usize)> = Vec::new();
+    let mut frames: Vec<(usize, i64, u64, usize)> = Vec::new();
     // Only a widget a keyboard setting was stored for can take keys
     // (`World::keyboard`); the stem interned as when every widget but an
     // edit box was looked at, at the first (nothing here collects it).
@@ -472,11 +472,14 @@ fn keyboard_frames(vm: &mut Vm) -> Vec<WidgetId> {
         if on && widgets::visible(engine(vm), id) {
             let rank = widgets::strata_rank(vm, id);
             let level = widgets::frame_level(vm, id) as i64;
-            frames.push((rank, level, i));
+            // (at the same strata and level, the one placed later first:
+            // T587)
+            let placed = engine(vm).world.widgets[i].placed;
+            frames.push((rank, level, placed, i));
         }
     }
     frames.sort_by(|a, b| b.cmp(a));
-    frames.into_iter().map(|(_, _, i)| WidgetId(i)).collect()
+    frames.into_iter().map(|(_, _, _, i)| WidgetId(i)).collect()
 }
 
 /// Whether a frame has an `OnKeyDown` script or hook.

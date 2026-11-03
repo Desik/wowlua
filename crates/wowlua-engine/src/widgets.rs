@@ -112,6 +112,10 @@ pub struct Widget {
     /// The Lua line that made it: chunk name and line (an inspector's
     /// "created at", decision T484); none from the client's own loading.
     pub created: Option<(std::rc::Rc<[u8]>, u32)>,
+    /// When it took its place among the frames of its strata and level: it
+    /// was made, or its strata or level changed (decision T587). Of two
+    /// frames at the same strata and level the later is drawn on top.
+    pub placed: u64,
 }
 
 /// A line a chat window showed (decision T514).
@@ -161,6 +165,8 @@ pub struct World {
     /// The scene's order of frames still holds: no frame was shown,
     /// hidden, made, reparented or re-layered since (decision T543).
     pub scene_order_valid: bool,
+    /// The next frame's place stamp (decision T587).
+    pub next_placed: u64,
     /// The widgets that ever registered for events: the ones an event
     /// looks at.
     pub listening: std::collections::BTreeSet<usize>,
@@ -673,6 +679,7 @@ pub fn create(vm: &mut Vm, class: &str, name: Option<String>, parent: Option<Wid
         frame: false,
         scroll_parent: None,
         created: vm.caller_place(1),
+        placed: 0,
     };
     let mut w = w;
     // Secure code's widgets are forbidden; their names are the addons'
@@ -681,6 +688,8 @@ pub fn create(vm: &mut Vm, class: &str, name: Option<String>, parent: Option<Wid
     let forbidden = vm.globals != main;
     let world = &mut engine_mut(vm).world;
     w.forbidden = forbidden;
+    w.placed = world.next_placed;
+    world.next_placed += 1;
     world.widgets.push(w);
     world.scene_order_valid = false;
     if let Some(p) = parent {
@@ -4957,6 +4966,11 @@ pub(crate) fn store(vm: &mut Vm, id: WidgetId, stem: &str, args: &[Value]) {
         });
         if !same {
             reorder(engine_mut(vm));
+            // (it takes its new place last among its strata and level:
+            // T587)
+            let world = &mut engine_mut(vm).world;
+            world.widgets[id.0].placed = world.next_placed;
+            world.next_placed += 1;
         }
     }
     mark(engine_mut(vm), id);
