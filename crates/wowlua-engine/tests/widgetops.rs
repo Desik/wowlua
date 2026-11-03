@@ -52,6 +52,37 @@ return raised, childRaised, a:GetFrameLevel(), b:GetFrameLevel()",
     assert_eq!(r, ["8", "9", "0", "7"]);
 }
 
+/// A top-level frame comes to the front of its strata as it shows and as
+/// it (or a frame in it) is clicked (decision T586): SuuUI's bags, shown
+/// over its damage meter's windows (a level deeper, in another frame).
+#[test]
+fn a_top_level_frame_comes_to_the_front_shown_and_clicked() {
+    let mut vm = vm();
+    let r = run(
+        &mut vm,
+        "local bags = CreateFrame('Frame', nil, UIParent)
+bags:SetToplevel(true)
+bags:Hide()
+local meterHolder = CreateFrame('Frame', nil, UIParent)
+local meter = CreateFrame('Frame', nil, meterHolder)
+local meterRow = CreateFrame('Button', nil, meter)
+local before = bags:GetFrameLevel()
+bags:Show()
+local shown = bags:GetFrameLevel()
+local plain = CreateFrame('Frame', nil, UIParent)
+plain:SetFrameLevel(40)
+local slot = CreateFrame('Button', nil, bags)
+mock.click(slot)
+local clicked = bags:GetFrameLevel()
+plain:Hide()
+plain:Show()
+return before, meterRow:GetFrameLevel(), shown, clicked, plain:GetFrameLevel()",
+    );
+    // Shown above the meter's row (3), clicked above the plain frame's 40;
+    // a frame that is not top-level stays where it is as it shows.
+    assert_eq!(r, ["1", "3", "4", "41", "40"]);
+}
+
 #[test]
 fn an_edit_box_inserts_in_place_of_its_selection() {
     let mut vm = vm();
