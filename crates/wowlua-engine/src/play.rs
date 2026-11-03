@@ -187,11 +187,13 @@ pub fn mouse_up(vm: &mut Vm, x: f64, y: f64, right: bool) {
     }
 }
 
-/// The mouse wheel turned at a point (`delta` 1 a notch up): the frame
-/// there taking the wheel (`OnMouseWheel`, or the nearest of its parents
-/// that does), else the camera zooming in (out for a notch down).
+/// The mouse wheel turned at a point (`delta` 1 a notch up): the topmost
+/// frame there taking the mouse or the wheel (decision T588), it or the
+/// nearest of its parents taking the wheel (`OnMouseWheel`), else the
+/// camera zooming in (out for a notch down).
 pub fn wheel(vm: &mut Vm, x: f64, y: f64, delta: f64) {
-    let mut at = frame_at(vm, x, y);
+    let mut at = crate::scene::wheel_test(vm, x, y)
+        .filter(|f| engine(vm).world.widgets[f.0].name.as_deref() != Some("WorldFrame"));
     while let Some(id) = at {
         let props = engine(vm).world.widgets[id.0].props;
         let takes = widgets::stored_args(vm, props, "MouseWheelEnabled")

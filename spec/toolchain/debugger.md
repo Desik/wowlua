@@ -216,7 +216,9 @@ re-layered (decision T543). A debug build,
 or `WOWLUA_SCENE_CHECK=1`, lays every scene out anew as well and stops on
 a difference.
 
-- **Order**: frame strata (`BACKGROUND` to `TOOLTIP`), frame level, then a
+- **Order**: frame strata (`BACKGROUND` to `TOOLTIP`), frame level, then of
+  two frames at the same strata and level the one placed later (made, or
+  its strata or level changed, later; decision T587, unverified), then a
   frame's regions (with those of its children on its level,
   `useParentLevel`, decision T341) by draw layer (`BACKGROUND`, `BORDER`, `ARTWORK`,
   `OVERLAY`, `HIGHLIGHT` while the mouse is over its button; a region given

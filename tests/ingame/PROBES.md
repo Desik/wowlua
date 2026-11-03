@@ -1248,3 +1248,50 @@ looking at the steps, and take a screenshot after each step.
    Seen: does anything change between the two (the undersides of the
    steps and roofs lighter, a warm tint from the ground)? wowlua: the
    whole scene a little brighter, undersides warmer. Seen: (to do)
+
+## Frames of the same level (decision T587)
+
+On Classic Era now, and again on WoW Forever from its launch on 5 November
+2026 (the same steps on each). Two squares at the same strata and level,
+overlapping: which is drawn on top, and whether `SetFrameLevel`, `Show`
+or `SetParent` changes it. wowlua guesses the one placed later (made, or
+its level changed, later) is on top: SuuUI's character window had its
+chosen tab's marker over the tab's label in wowlua, the label over it in
+the game. If the game differs, decision T587 changes with it.
+
+1. **Red, made first**: `/run A=CreateFrame("Frame",nil,UIParent) A:SetSize(200,200) A:SetPoint("CENTER") A:SetFrameLevel(50) local t=A:CreateTexture() t:SetAllPoints() t:SetColorTexture(1,0,0)`
+2. **Blue, made second**: `/run B=CreateFrame("Frame",nil,UIParent) B:SetSize(200,200) B:SetPoint("CENTER",60,60) B:SetFrameLevel(50) local t=B:CreateTexture() t:SetAllPoints() t:SetColorTexture(0,0,1)`
+
+   Seen: where they overlap, red or blue? wowlua: blue. Seen: (to do)
+3. **Red's level set again, the same**: `/run A:SetFrameLevel(50)`
+
+   Seen: red or blue on top now? wowlua: blue. Seen: (to do)
+4. **Red's level changed and back**: `/run A:SetFrameLevel(49) A:SetFrameLevel(50)`
+
+   Seen: red or blue? wowlua: red. Seen: (to do)
+5. **Blue hidden and shown**: `/run B:Hide() B:Show()`
+
+   Seen: red or blue? wowlua: red. Seen: (to do)
+6. **Red hidden and shown**: `/run A:Hide() A:Show()`
+
+   Seen: red or blue? wowlua: red. Seen: (to do)
+7. **Gone**: `/run A:Hide() B:Hide()`
+
+## The mouse wheel over frames (decision T588)
+
+On Classic Era now, and again on WoW Forever from its launch on 5 November
+2026 (the same steps on each). Which frame the wheel reaches: one taking
+only the wheel over a window taking the mouse, then a frame taking the
+mouse above it.
+
+1. **The window**: `/run W=CreateFrame("Frame",nil,UIParent) W:SetSize(300,300) W:SetPoint("CENTER") W:EnableMouse(true) local t=W:CreateTexture() t:SetAllPoints() t:SetColorTexture(0,0,0,0.5)`
+2. **Wheel only, in it**: `/run S=CreateFrame("Frame",nil,W) S:SetAllPoints() S:SetScript("OnMouseWheel",function(_,d) print("S wheel",d) end)`
+3. Put the mouse over the dark square and turn the wheel one notch.
+
+   Seen: does the chat print "S wheel"? wowlua: yes. Seen: (to do)
+4. **A frame taking the mouse above it**: `/run B=CreateFrame("Frame",nil,UIParent) B:SetSize(100,100) B:SetPoint("CENTER") B:SetFrameStrata("HIGH") B:EnableMouse(true) local t=B:CreateTexture() t:SetAllPoints() t:SetColorTexture(1,0,0,0.5)`
+5. Put the mouse over the red square and turn the wheel one notch.
+
+   Seen: does the chat print "S wheel", or does the camera zoom? wowlua:
+   the camera zooms. Seen: (to do)
+6. **Gone**: `/run W:Hide() B:Hide()`
