@@ -1276,3 +1276,22 @@ the game. If the game differs, decision T587 changes with it.
 
    Seen: red or blue? wowlua: red. Seen: (to do)
 7. **Gone**: `/run A:Hide() B:Hide()`
+
+## The mouse wheel over frames (decision T588)
+
+On Classic Era now, and again on WoW Forever from its launch on 5 November
+2026 (the same steps on each). Which frame the wheel reaches: one taking
+only the wheel over a window taking the mouse, then a frame taking the
+mouse above it.
+
+1. **The window**: `/run W=CreateFrame("Frame",nil,UIParent) W:SetSize(300,300) W:SetPoint("CENTER") W:EnableMouse(true) local t=W:CreateTexture() t:SetAllPoints() t:SetColorTexture(0,0,0,0.5)`
+2. **Wheel only, in it**: `/run S=CreateFrame("Frame",nil,W) S:SetAllPoints() S:SetScript("OnMouseWheel",function(_,d) print("S wheel",d) end)`
+3. Put the mouse over the dark square and turn the wheel one notch.
+
+   Seen: does the chat print "S wheel"? wowlua: yes. Seen: (to do)
+4. **A frame taking the mouse above it**: `/run B=CreateFrame("Frame",nil,UIParent) B:SetSize(100,100) B:SetPoint("CENTER") B:SetFrameStrata("HIGH") B:EnableMouse(true) local t=B:CreateTexture() t:SetAllPoints() t:SetColorTexture(1,0,0,0.5)`
+5. Put the mouse over the red square and turn the wheel one notch.
+
+   Seen: does the chat print "S wheel", or does the camera zoom? wowlua:
+   the camera zooms. Seen: (to do)
+6. **Gone**: `/run W:Hide() B:Hide()`

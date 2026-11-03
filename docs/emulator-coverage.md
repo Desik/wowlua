@@ -2478,6 +2478,8 @@ in [tests/ingame/PROBES.md](../tests/ingame/PROBES.md):
 - Spells in the world (decision T582)
 - WoW Forever's water (decision T583)
 - The world's shading (decisions T584, T585)
+- Frames of the same level (decision T587)
+- The mouse wheel over frames (decision T588)
 
 ## In-game regressions
 

@@ -65,6 +65,33 @@ fn the_frame_under_the_mouse_is_hovered_clicked_and_scrolled() {
     );
 }
 
+/// A scroll area taking only the wheel over a window taking the mouse
+/// (SuuUI's settings navigation, its entries not taking the mouse): the
+/// wheel turns it, not the window nor the camera (decision T588).
+#[test]
+fn the_wheel_finds_a_frame_taking_only_the_wheel() {
+    let mut vm = vm();
+    run(
+        &mut vm,
+        "Log = {}
+local window = CreateFrame('Frame', 'Window', UIParent)
+window:SetSize(300, 300)
+window:SetPoint('CENTER')
+window:EnableMouse(true)
+local nav = CreateFrame('ScrollFrame', nil, window)
+nav:SetAllPoints()
+nav:EnableMouseWheel(true)
+nav:SetScript('OnMouseWheel', function(_, d) Log[#Log + 1] = 'nav ' .. d end)
+local entry = CreateFrame('Button', nil, nav)
+entry:SetSize(100, 20)
+entry:SetPoint('CENTER')",
+    );
+    let (x, y) = middle(&vm);
+    play::wheel(&mut vm, x, y, -1.0);
+    let out = run(&mut vm, "return table.concat(Log, ', ')");
+    assert_eq!(out, ["nav -1"]);
+}
+
 #[test]
 fn a_frame_registered_for_dragging_follows_the_mouse() {
     let mut vm = vm();
