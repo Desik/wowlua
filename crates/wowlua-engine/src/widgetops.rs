@@ -3,7 +3,8 @@
 //! nothing (decision T289).
 //!
 //! - `Frame:Raise()` and `Frame:Lower()`: the frame's level above (below)
-//!   every other shown frame's in its strata, as `GetFrameLevel` answers.
+//!   every other shown frame's in its strata, as `GetFrameLevel` answers;
+//!   a top-level frame raised so as it shows and as it is clicked (T586).
 //! - An edit box's selection: `HighlightText([start [, end]])` selects
 //!   (the whole text by default; `HighlightText(0, 0)` nothing),
 //!   `ClearHighlightText()` drops it; `Insert(text)` puts the text in place
@@ -96,13 +97,52 @@ fn other_levels(vm: &mut Vm, id: WidgetId) -> Vec<f64> {
 /// `PlayerSpellsFrame`, raised to 501, its `SpellBookFrame` at 100 was
 /// drawn under it; the recorded tree has the pane above the window).
 fn raise(vm: &mut Vm, id: WidgetId, _c: NativeCall) -> Ret {
+    raise_frame(vm, id);
+    Ok(vec![])
+}
+
+/// A frame raised as `Raise` raises it.
+pub(crate) fn raise_frame(vm: &mut Vm, id: WidgetId) {
     let own = widgets::frame_level(vm, id);
     let top = other_levels(vm, id).into_iter().fold(f64::MIN, f64::max);
     if top >= own {
         let level = (top + 1.0).min(MAX_LEVEL);
         widgets::set_level(vm, id, level);
     }
-    Ok(vec![])
+}
+
+/// Whether a frame is top-level (`SetToplevel(true)`, `toplevel="true"`).
+fn toplevel(vm: &mut Vm, id: WidgetId) -> bool {
+    let props = engine(vm).world.widgets[id.0].props;
+    widgets::stored_args(vm, props, "Toplevel")
+        .and_then(|v| v.first().copied())
+        .is_some_and(|v| v.truthy())
+}
+
+/// A top-level frame raised as it shows (decision T586: "when clicked with
+/// the mouse or when shown").
+pub(crate) fn raise_shown(vm: &mut Vm, id: WidgetId) {
+    if toplevel(vm, id) {
+        raise_frame(vm, id);
+    }
+}
+
+/// The top-level frames a click on `id` raises (decision T586): it and the
+/// top-level frames it is in, the outermost first. Unverified: whether a
+/// click in a top-level frame's child raises it (here it does, as a click
+/// on a window's button brings the window forward).
+pub(crate) fn raise_clicked(vm: &mut Vm, id: WidgetId) {
+    let mut chain = Vec::new();
+    let mut at = Some(id);
+    while let Some(w) = at {
+        chain.push(w);
+        at = engine(vm).world.widgets[w.0].parent;
+    }
+    for w in chain.into_iter().rev() {
+        if toplevel(vm, w) {
+            raise_frame(vm, w);
+        }
+    }
 }
 
 /// `Frame:Lower()`: below every other shown frame of its strata (0 at the

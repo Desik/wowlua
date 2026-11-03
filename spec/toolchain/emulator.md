@@ -489,7 +489,9 @@ The WoW API the VM's code calls, per flavor.
 - **Widget state.** A method with no result changes what the widget's
   getters answer as the client's does (decision T289): `Raise()` and
   `Lower()` put a frame above or below every other shown frame of its
-  strata (`GetFrameLevel`); an edit box keeps a selection
+  strata (`GetFrameLevel`), and a top-level frame (`SetToplevel(true)`)
+  raises itself so as it shows and as it or a frame in it is clicked
+  (decision T586); an edit box keeps a selection
   (`HighlightText`, `ClearHighlightText`) that `Insert(text)` and the
   user's typing (`mock.type`) replace, else they go in at the cursor, and
   `SetText` puts the cursor at the end, as does the user's click or typing

@@ -1860,6 +1860,10 @@ pub fn set_shown(vm: &mut Vm, id: WidgetId, shown: bool) {
     for w in changing {
         let now = visible(engine(vm), w);
         if now != was {
+            // (a top-level frame comes to the front as it shows: T586)
+            if now {
+                crate::widgetops::raise_shown(vm, w);
+            }
             run_script(vm, w, if now { "OnShow" } else { "OnHide" }, &[]);
         }
     }
